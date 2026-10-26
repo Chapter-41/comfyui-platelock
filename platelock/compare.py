@@ -51,8 +51,9 @@ def headline(summary: dict, generated=()) -> list[tuple[str, tuple]]:
     removed = s["dropped_gen_frames"]
     lines = [(f"plate {s['plate_frames']} frames   generated {s['gen_frames']} frames   ->   output {s['plate_frames']} frames", FG)]
     facts = []
-    if s["interpolated"]:
-        facts.append((f"{len(s['interpolated'])} filled", ORANGE))
+    filled = [p for p in s["interpolated"] if p not in generated]
+    if filled:
+        facts.append((f"{len(filled)} filled", ORANGE))
     if generated:
         facts.append((f"{len(generated)} generated", PURPLE))
     missing = [p for p in s["missing_plate_frames"] if p not in generated]

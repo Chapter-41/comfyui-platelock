@@ -145,15 +145,17 @@ class NodesTest(unittest.TestCase):
         import cv2
         model_out[:len(plate)] = np.stack([cv2.resize(f, (width, height)) for f in plate])[..., None]
         video, side, preview, report = m["PlateLockFillMerge"]().run(window, model_out.view(Tensor))
-        self.assertIn("generated 10 missing frames with the video model", report)
+        self.assertIn("generated 10 frames with the video model", report)
         self.assertNotIn("MISSING", report)
         self.assertTrue(Path(side.get_stream_source()).is_file())
         self.assertEqual(preview.shape[0], 1)
         frames = decode_small_rgb(video.get_stream_source(), 256)
         self.assertEqual(len(frames), 80)
         self.assertTrue(all(frames[i].mean() > 10 for i in range(70, 80)))
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, "only 1 gap"):
             m["PlateLockFillWindow"]().run(fill, 1, 25, 9, "missing", 1280)
+        with self.assertRaisesRegex(ValueError, "smaller than length"):
+            m["PlateLockFillWindow"]().run(fill, 0, 25, 25, "missing", 1280)
 
     def test_platelock_images(self):
         frames = lambda a: np.repeat(a[..., None], 3, axis=3).astype(np.float32).view(Tensor)

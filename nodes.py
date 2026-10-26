@@ -50,12 +50,13 @@ def _image(rgb: np.ndarray):
 def _report(summary: dict, generated=()) -> str:
     s = summary
     lines = [f"plate {s['plate_frames']} frames, generated {s['gen_frames']} frames -> output {s['plate_frames']} frames"]
-    if s["interpolated"]:
-        lines.append(f"filled {len(s['interpolated'])} frames the generator skipped or repeated: {s['interpolated']}")
+    filled = [f for f in s["interpolated"] if f not in generated]
+    if filled:
+        lines.append(f"filled {len(filled)} frames the generator skipped or repeated: {filled}")
     if s["dropped_gen_frames"]:
         lines.append(f"removed {len(s['dropped_gen_frames'])} extra generated frames: {s['dropped_gen_frames']}")
     if generated:
-        lines.append(f"generated {len(generated)} missing frames with the video model: {sorted(generated)}")
+        lines.append(f"generated {len(generated)} frames with the video model: {sorted(generated)}")
     missing = [f for f in s["missing_plate_frames"] if f not in generated]
     if missing:
         lines.append(f"MISSING {len(missing)} plate frames never generated (black): {missing}")
@@ -187,7 +188,8 @@ class PlateLockFillWindow:
                 "context": ("INT", {"default": 9, "min": 1, "max": 1024,
                                     "tooltip": "Real frames before the gap the model continues from. For LTX use 8n+1 (9, 17)."}),
                 "frames_to_generate": (["missing", "missing and filled"], {"default": "missing",
-                                       "tooltip": "'missing and filled' also regenerates frames that interpolation filled."}),
+                                       "tooltip": "missing: only frames the generator never made. 'missing and filled' also "
+                                                  "redoes frames RIFE filled, one gap per run (missing gaps come first)."}),
                 "max_width": ("INT", {"default": 1280, "min": 256, "max": 8192, "step": 32}),
             }
         }
@@ -195,12 +197,18 @@ class PlateLockFillWindow:
     def run(self, fill, window, length, context, frames_to_generate, max_width):
         import torch
         from .platelock.genfill import control, model_size, overlay_patches, read_range, windows
+        if context >= length:
+            raise ValueError(f"context ({context}) must be smaller than length ({length}): "
+                             "the window needs room for the frames to generate.")
         targets = _targets(fill, frames_to_generate)
+        missing = set(fill["missing"])
         wins = windows(targets, fill["frames"], length, context)
+        wins.sort(key=lambda w: not missing.intersection(w[1]))
         if not wins:
-            raise ValueError("Nothing to generate: every plate frame is covered.")
+            raise ValueError("Nothing to generate: every plate frame is already there.")
         if window >= len(wins):
-            raise ValueError(f"Only {len(wins)} window(s); all done. Reset window to 0 to start over.")
+            raise ValueError(f"There are only {len(wins)} gap(s) to fill: set window to 0"
+                             f"{f' to {len(wins) - 1}' if len(wins) > 1 else ''}.")
         start, covered = wins[window]
         clip_info = probe(fill["clip"])
         size = model_size(clip_info.width, clip_info.height, max_width)
@@ -263,7 +271,6 @@ def _overview(window: dict, final_clip: Path, generated: set[int], fps: Fraction
     plate_rgb = decode_small_rgb(side["plate"]["path"], 480)
     gen_rgb = decode_small_rgb(side["generated"]["path"], 480)
     final_rgb = decode_small_rgb(str(final_clip), 480)
-    generated = {g for g in generated if g in set(side["summary"]["missing_plate_frames"])}
     out = final_clip.with_name(final_clip.stem + "_side_by_side.mp4")
     compare_video(plate_rgb, gen_rgb, ops, side["summary"], out, fps, final=final_rgb, generated=generated)
     preview = summary_image(plate_rgb, gen_rgb, ops, side["summary"], final=final_rgb, generated=generated)
