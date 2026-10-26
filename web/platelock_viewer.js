@@ -1,10 +1,14 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-const COLORS = { copy: "#5a5a5a", interp: "#ffa028", generated: "#be6eff", missing: "#e63c3c" };
-const MODES = [["side", "Side by side"], ["wipe", "Wipe"], ["onion", "Onion skin"], ["flicker", "Flicker"],
-  ["edges", "Edges"], ["diff", "Difference"]];
-const HELP = "←/→ step · shift ×10 · N/P next/prev problem · 1-6 view · B compare with · space flicker · K play";
+const COLORS = { copy: "#5a5a5a", interp: "#ffa028", generated: "#be6eff", missing: "#e63c3c", timing: "#ffe14a", moved: "#ff5050" };
+const MODES = [["wipe", "Wipe", "Drag the line across the frame"],
+  ["flicker", "Flicker", "Click or press space to switch between plate and result"],
+  ["edges", "Edges", "Outlines: plate green, result magenta, white where they line up"]];
+const MOVED_PX = 4;
+const HELP = "←/→ frame · shift+←/→ 10 frames · N/P next/previous frame to check · space flicker · K play";
+const LEGEND = [["copy", "from the video"], ["interp", "filled"], ["generated", "generated"], ["missing", "missing"],
+  ["timing", "shows a neighbouring plate frame"], ["moved", `moved more than ${MOVED_PX} px`]];
 const pad = (i) => String(i).padStart(6, "0");
 
 function timecode(i, fps) {
@@ -47,7 +51,6 @@ class Viewer {
     this.mode = "wipe";
     this.b = "l";
     this.wipe = 0.5;
-    this.onion = 0.5;
     this.showB = true;
     this.images = new Map();
     this.root = el("div", { display: "flex", flexDirection: "column", gap: "4px", width: "100%", height: "100%",
@@ -60,30 +63,40 @@ class Viewer {
       bar.append(b);
       return b;
     };
-    this.modeButtons = MODES.map(([id, label], n) => {
-      const b = button(label, () => this.set({ mode: id }), `${label} (${n + 1})`);
+    this.modeButtons = MODES.map(([id, label, title], n) => {
+      const b = button(label, () => this.set({ mode: id }), `${title} (${n + 1})`);
       b.dataset.mode = id;
       return b;
     });
     this.bButton = button("", () => this.set({ b: this.b === "l" ? "g" : "l" }), "Compare the plate with (B)");
     this.playButton = button("▶", () => this.play(), "Play (K)");
-    this.onionSlider = el("input", { width: "70px" }, { type: "range", min: 0, max: 1, step: 0.01, value: 0.5,
-      oninput: (e) => this.set({ onion: +e.target.value }) });
-    bar.append(this.onionSlider);
     button("⤢", () => this.fullscreen(), "Full screen");
     this.canvas = el("canvas", { width: "100%", flex: "1 1 auto", minHeight: "120px", cursor: "ew-resize",
       background: "#000", borderRadius: "3px" });
-    this.timeline = el("canvas", { width: "100%", height: "44px", cursor: "pointer" });
+    this.timeline = el("canvas", { width: "100%", height: "34px", cursor: "pointer" });
+    this.legend = el("div", { display: "flex", gap: "10px", flexWrap: "wrap", fontSize: "11px", color: "#aaa" });
+    for (const [key, text] of LEGEND) {
+      const item = el("span", {}, { textContent: text });
+      item.prepend(el("span", { display: "inline-block", width: "9px", height: "9px", marginRight: "4px",
+        background: COLORS[key], borderRadius: "2px" }));
+      this.legend.append(item);
+    }
     this.info = el("div", { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontVariantNumeric: "tabular-nums" });
     this.help = el("div", { color: "#777", fontSize: "11px" }, { textContent: HELP });
-    this.root.append(bar, this.canvas, this.timeline, this.info, this.help);
+    this.root.append(bar, this.canvas, this.info, this.timeline, this.legend, this.help);
     this.root.addEventListener("keydown", (e) => this.key(e));
-    const scrub = (e) => {
+    const at = (e) => {
       const r = this.timeline.getBoundingClientRect();
-      this.go(Math.floor(((e.clientX - r.left) / r.width) * this.frames));
+      const x = (e.clientX - r.left - this.gutter) / (r.width - this.gutter);
+      return Math.max(0, Math.min(this.frames - 1, Math.floor(x * this.frames)));
     };
-    this.timeline.addEventListener("pointerdown", (e) => { this.timeline.setPointerCapture(e.pointerId); scrub(e); });
-    this.timeline.addEventListener("pointermove", (e) => { if (e.buttons) scrub(e); });
+    this.timeline.addEventListener("pointerdown", (e) => { this.timeline.setPointerCapture(e.pointerId); this.go(at(e)); });
+    this.timeline.addEventListener("pointermove", (e) => {
+      if (!this.m) return;
+      if (e.buttons) this.go(at(e));
+      else this.info.textContent = `hover: ${this.describe(at(e))}`;
+    });
+    this.timeline.addEventListener("pointerleave", () => this.drawInfo());
     const wipe = (e) => {
       const r = this.canvas.getBoundingClientRect();
       this.set({ wipe: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) });
@@ -105,10 +118,9 @@ class Viewer {
     this.frames = this.m.ops.length;
     this.fps = this.m.fps.split("/").reduce((a, b) => a / b);
     this.generated = new Set(this.m.generated);
-    this.problems = this.m.ops.map((o, i) => {
-      const d = this.m.drift[i];
-      return o.op !== "copy" || this.generated.has(i) || (d && (d.dt || (d.shift ?? 0) > 5));
-    });
+    const [ox, oy] = this.m.exactness?.offset_px ?? [0, 0];
+    this.moved = this.m.drift.map((d) => d?.dx != null && Math.hypot(d.dx - ox, d.dy - oy) > MOVED_PX);
+    this.problems = this.m.ops.map((o, i) => o.op !== "copy" || this.generated.has(i) || !!this.m.drift[i]?.dt || this.moved[i]);
     this.i = Math.min(this.i, this.frames - 1);
     this.set({});
   }
@@ -140,7 +152,6 @@ class Viewer {
     if (!this.m) return;
     this.modeButtons.forEach((b) => (b.style.background = b.dataset.mode === this.mode ? "#3d5a80" : "#2a2a2a"));
     this.bButton.textContent = `B: ${this.b === "l" ? this.m.label.toLowerCase() : "as delivered"}`;
-    this.onionSlider.style.display = this.mode === "onion" ? "" : "none";
     this.draw();
   }
 
@@ -214,10 +225,9 @@ class Viewer {
     const labelB = this.b === "l" ? this.m.label : "AS DELIVERED";
     if (ref) {
       const aspect = ref.naturalWidth / ref.naturalHeight;
-      const cols = this.mode === "side" ? 2 : 1;
-      let w = W / cols, h = w / aspect;
+      let w = W, h = w / aspect;
       if (h > H) { h = H; w = h * aspect; }
-      const x0 = (W - w * cols) / 2, y0 = (H - h) / 2;
+      const x0 = (W - w) / 2, y0 = (H - h) / 2;
       const put = (img, x) => (img ? ctx.drawImage(img, x, y0, w, h) : null);
       const label = (text, x, y = y0 + 6) => {
         ctx.font = `${12 * dpr}px system-ui`;
@@ -226,10 +236,7 @@ class Viewer {
         ctx.fillStyle = "#fff";
         ctx.fillText(text, x + 5 * dpr, y + 13 * dpr);
       };
-      if (this.mode === "side") {
-        put(a, x0); put(b, x0 + w);
-        label("PLATE", x0 + 6); label(labelB, x0 + w + 6);
-      } else if (this.mode === "wipe") {
+      if (this.mode === "wipe") {
         put(a, x0);
         ctx.save();
         ctx.beginPath();
@@ -240,18 +247,12 @@ class Viewer {
         ctx.fillStyle = "#fff";
         ctx.fillRect(x0 + w * this.wipe - dpr, y0, 2 * dpr, h);
         label("PLATE", x0 + 6); label(labelB, x0 + w - 120 * dpr);
-      } else if (this.mode === "onion") {
-        put(a, x0);
-        ctx.globalAlpha = this.onion;
-        put(b, x0);
-        ctx.globalAlpha = 1;
-        label(`PLATE + ${labelB} ${Math.round(this.onion * 100)}%`, x0 + 6);
       } else if (this.mode === "flicker") {
         put(this.showB ? b : a, x0);
         label(this.showB ? labelB : "PLATE", x0 + 6);
       } else {
         this.compare(ctx, a, b, x0, y0, w, h);
-        label(this.mode === "edges" ? `edges: PLATE green · ${labelB} magenta · aligned white` : "pixel difference", x0 + 6);
+        label(`PLATE green · ${labelB} magenta · white = lined up`, x0 + 6);
       }
     }
     this.drawTimeline();
@@ -271,16 +272,9 @@ class Viewer {
       o.drawImage(b, 0, 0, cw, ch);
       const db = o.getImageData(0, 0, cw, ch).data;
       const out = o.createImageData(cw, ch);
-      if (this.mode === "edges") {
-        const ea = edges(da, cw, ch), eb = edges(db, cw, ch);
-        for (let i = 0, j = 0; i < ea.length; i++, j += 4) {
-          out.data[j] = eb[i] * 255; out.data[j + 1] = ea[i] * 255; out.data[j + 2] = eb[i] * 255; out.data[j + 3] = 255;
-        }
-      } else {
-        for (let j = 0; j < da.length; j += 4) {
-          const d = Math.min(255, (Math.abs(da[j] - db[j]) + Math.abs(da[j + 1] - db[j + 1]) + Math.abs(da[j + 2] - db[j + 2])) * 1.5);
-          out.data[j] = d; out.data[j + 1] = d * 0.8; out.data[j + 2] = d * 0.5; out.data[j + 3] = 255;
-        }
+      const ea = edges(da, cw, ch), eb = edges(db, cw, ch);
+      for (let i = 0, j = 0; i < ea.length; i++, j += 4) {
+        out.data[j] = eb[i] * 255; out.data[j + 1] = ea[i] * 255; out.data[j + 2] = eb[i] * 255; out.data[j + 3] = 255;
       }
       o.putImageData(out, 0, 0);
       this.cacheKey = key;
@@ -295,41 +289,47 @@ class Viewer {
     const W = Math.round(c.clientWidth * dpr), H = Math.round(c.clientHeight * dpr);
     if (c.width !== W || c.height !== H) Object.assign(c, { width: W, height: H });
     const ctx = c.getContext("2d");
+    this.gutter = 52;
+    const g = this.gutter * dpr, row = (H - 4 * dpr) / 2, n = this.frames, fw = (W - g) / n;
     ctx.fillStyle = "#101010";
     ctx.fillRect(0, 0, W, H);
-    const n = this.frames, fw = W / n, top = 12 * dpr, graph = H - top - 2 * dpr;
+    ctx.font = `${10 * dpr}px system-ui`;
+    ctx.fillStyle = "#999";
+    ctx.fillText("frames", 4 * dpr, row * 0.5 + 4 * dpr);
+    ctx.fillText("check", 4 * dpr, row * 1.5 + 8 * dpr);
+    ctx.fillStyle = "#1c1c1c";
+    ctx.fillRect(g, row + 3 * dpr, W - g, row);
     this.m.ops.forEach((o, i) => {
+      const x = g + i * fw, w = Math.max(fw, dpr);
       ctx.fillStyle = this.generated.has(i) ? COLORS.generated : COLORS[o.op] || COLORS.copy;
-      ctx.fillRect(i * fw, 0, Math.max(fw, dpr), top - 2 * dpr);
-      const d = this.m.drift[i];
-      if (!d) return;
-      if (d.shift != null) {
-        const v = Math.min(d.shift, 10) / 10;
-        ctx.fillStyle = d.shift <= 2 ? "#3c8c50" : d.shift <= 5 ? "#c8a028" : "#d04040";
-        ctx.fillRect(i * fw, H - v * graph, Math.max(fw, dpr), v * graph);
-      }
-      if (d.dt) {
-        ctx.fillStyle = "#ffe14a";
-        ctx.fillRect(i * fw, top, Math.max(fw, dpr), 4 * dpr);
+      ctx.fillRect(x, 0, w, row);
+      const flag = this.m.drift[i]?.dt ? COLORS.timing : this.moved[i] ? COLORS.moved : null;
+      if (flag) {
+        ctx.fillStyle = flag;
+        ctx.fillRect(x, row + 3 * dpr, w, row);
       }
     });
     ctx.fillStyle = "#fff";
-    ctx.fillRect(this.i * fw, 0, Math.max(fw, 2 * dpr), H);
+    ctx.fillRect(g + this.i * fw, 0, Math.max(fw, 2 * dpr), H);
+  }
+
+  describe(i) {
+    const o = this.m.ops[i];
+    const d = this.m.drift[i];
+    const source = this.generated.has(i) ? "generated by the video model"
+      : o.op === "copy" ? `from video frame ${o.gen}`
+      : o.op === "interp" ? `filled between video frames ${o.gen} and ${o.gen_b}`
+      : "missing (black)";
+    const check = !d ? "" : d.dt ? `⚠ shows plate frame ${i + d.dt}` : this.moved[i] ? `⚠ moved ${d.shift.toFixed(1)} px` : "✓";
+    return [`frame ${i}`, timecode(i, this.fps), source, check].filter(Boolean).join("  ·  ");
   }
 
   drawInfo() {
-    const o = this.m.ops[this.i];
-    const d = this.m.drift[this.i];
-    const source = this.generated.has(this.i) ? "generated by the video model"
-      : o.op === "copy" ? `generated frame ${o.gen}`
-      : o.op === "interp" ? `filled between generated ${o.gen} and ${o.gen_b} (${Math.round(o.alpha * 100)}%)`
-      : "missing (black)";
-    const timing = !d ? "" : d.dt ? `⚠ looks like plate frame ${this.i + d.dt}` : d.sure ? "timing ok" : "timing: static, unverifiable";
-    const shift = d?.shift != null ? `shift ${d.shift.toFixed(1)} px (x ${d.dx >= 0 ? "+" : ""}${d.dx.toFixed(1)}, y ${d.dy >= 0 ? "+" : ""}${d.dy.toFixed(1)})` : "";
-    this.info.textContent = [`plate ${this.i} / ${this.frames - 1}`, timecode(this.i, this.fps), source, timing, shift]
-      .filter(Boolean).join("  ·  ");
+    this.info.textContent = this.describe(this.i);
     const x = this.m.exactness;
-    this.root.title = x?.measured ? `timing ${x.in_sync}/${x.measured} in sync · median shift ${x.median_shift_px ?? "?"} px` : "";
+    if (x?.offset_px && Math.hypot(...x.offset_px) > MOVED_PX) {
+      this.info.textContent += `  ·  whole clip sits ${x.offset_px[0]} px x, ${x.offset_px[1]} px y off the plate`;
+    }
   }
 }
 
@@ -341,7 +341,8 @@ app.registerExtension({
     nodeType.prototype.onExecuted = function (message) {
       onExecuted?.apply(this, arguments);
       const info = message?.platelock_viewer?.[0];
-      if (!info) return;
+      const fillUsed = nodeData.name === "PlateLock" && this.outputs?.find((o) => o.name === "fill")?.links?.length;
+      if (!info || fillUsed) return;
       if (!this.platelockViewer) {
         this.platelockViewer = new Viewer();
         this.addDOMWidget("viewer", "platelock_viewer", this.platelockViewer.root, {
