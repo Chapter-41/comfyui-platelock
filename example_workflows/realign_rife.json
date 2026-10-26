@@ -1,0 +1,556 @@
+{
+ "id": "00000000-0000-0000-0000-000000000000",
+ "revision": 0,
+ "last_node_id": 8,
+ "last_link_id": 14,
+ "nodes": [
+  {
+   "id": 1,
+   "type": "LoadVideo",
+   "pos": [
+    0,
+    0
+   ],
+   "size": [
+    282.798828125,
+    233.0743408203125
+   ],
+   "flags": {},
+   "order": 0,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "file",
+     "name": "file",
+     "type": "COMBO",
+     "widget": {
+      "name": "file"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "choose file to upload",
+     "name": "upload",
+     "type": "IMAGEUPLOAD",
+     "widget": {
+      "name": "upload"
+     },
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "VIDEO",
+     "name": "VIDEO",
+     "type": "VIDEO",
+     "links": [
+      8
+     ]
+    }
+   ],
+   "title": "Plate",
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "0.33.1",
+    "Node name for S&R": "LoadVideo"
+   },
+   "widgets_values": [
+    "realign_006_016_plate.mp4",
+    "image"
+   ]
+  },
+  {
+   "id": 2,
+   "type": "LoadVideo",
+   "pos": [
+    0,
+    420
+   ],
+   "size": [
+    282.798828125,
+    233.0743408203125
+   ],
+   "flags": {},
+   "order": 1,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "file",
+     "name": "file",
+     "type": "COMBO",
+     "widget": {
+      "name": "file"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "choose file to upload",
+     "name": "upload",
+     "type": "IMAGEUPLOAD",
+     "widget": {
+      "name": "upload"
+     },
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "VIDEO",
+     "name": "VIDEO",
+     "type": "VIDEO",
+     "links": [
+      9
+     ]
+    }
+   ],
+   "title": "Generated (as delivered)",
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "0.33.1",
+    "Node name for S&R": "LoadVideo"
+   },
+   "widgets_values": [
+    "realign_006_016_seedance_v002.mp4",
+    "image"
+   ]
+  },
+  {
+   "id": 3,
+   "type": "FrameInterpolationModelLoader",
+   "pos": [
+    0,
+    840
+   ],
+   "size": [
+    310.1529296875,
+    58
+   ],
+   "flags": {},
+   "order": 2,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "model_name",
+     "name": "model_name",
+     "type": "COMBO",
+     "widget": {
+      "name": "model_name"
+     },
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "INTERP_MODEL",
+     "name": "INTERP_MODEL",
+     "type": "INTERP_MODEL",
+     "links": [
+      10
+     ]
+    }
+   ],
+   "title": "RIFE (fills skipped frames)",
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "0.33.1",
+    "Node name for S&R": "FrameInterpolationModelLoader"
+   },
+   "widgets_values": [
+    "rife_v4.26.safetensors"
+   ]
+  },
+  {
+   "id": 4,
+   "type": "Realign",
+   "pos": [
+    420,
+    300
+   ],
+   "size": [
+    340,
+    220
+   ],
+   "flags": {},
+   "order": 3,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "plate",
+     "name": "plate",
+     "type": "VIDEO",
+     "link": 8
+    },
+    {
+     "localized_name": "generated",
+     "name": "generated",
+     "type": "VIDEO",
+     "link": 9
+    },
+    {
+     "localized_name": "interp_model",
+     "name": "interp_model",
+     "shape": 7,
+     "type": "INTERP_MODEL",
+     "link": 10
+    },
+    {
+     "localized_name": "mask",
+     "name": "mask",
+     "shape": 7,
+     "type": "MASK",
+     "link": null
+    },
+    {
+     "localized_name": "output_fps",
+     "name": "output_fps",
+     "type": "STRING",
+     "widget": {
+      "name": "output_fps"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "format",
+     "name": "format",
+     "type": "COMBO",
+     "widget": {
+      "name": "format"
+     },
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "realigned",
+     "name": "realigned",
+     "type": "VIDEO",
+     "links": [
+      13
+     ]
+    },
+    {
+     "localized_name": "side_by_side",
+     "name": "side_by_side",
+     "type": "VIDEO",
+     "links": [
+      14
+     ]
+    },
+    {
+     "localized_name": "preview",
+     "name": "preview",
+     "type": "IMAGE",
+     "links": [
+      11
+     ]
+    },
+    {
+     "localized_name": "report",
+     "name": "report",
+     "type": "STRING",
+     "links": [
+      12
+     ]
+    },
+    {
+     "localized_name": "fill",
+     "name": "fill",
+     "type": "REALIGN_FILL",
+     "links": null
+    }
+   ],
+   "properties": {
+    "aux_id": "Chapter-41/comfyui-realign",
+    "ver": "09a487aca528621a967b9c6db2fe1a6408e468cf",
+    "Node name for S&R": "Realign"
+   },
+   "widgets_values": [
+    "plate",
+    "mp4"
+   ]
+  },
+  {
+   "id": 5,
+   "type": "PreviewImage",
+   "pos": [
+    820,
+    0
+   ],
+   "size": [
+    480,
+    560
+   ],
+   "flags": {},
+   "order": 6,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "images",
+     "name": "images",
+     "type": "IMAGE",
+     "link": 11
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "images",
+     "name": "images",
+     "type": "IMAGE",
+     "links": null
+    }
+   ],
+   "title": "What changed",
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "0.33.1",
+    "Node name for S&R": "PreviewImage"
+   }
+  },
+  {
+   "id": 6,
+   "type": "PreviewAny",
+   "pos": [
+    820,
+    620
+   ],
+   "size": [
+    480,
+    260
+   ],
+   "flags": {},
+   "order": 7,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "source",
+     "name": "source",
+     "type": "*",
+     "link": 12
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "STRING",
+     "name": "STRING",
+     "type": "STRING",
+     "links": null
+    }
+   ],
+   "title": "Report",
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "0.33.1",
+    "Node name for S&R": "PreviewAny"
+   },
+   "widgets_values": []
+  },
+  {
+   "id": 7,
+   "type": "SaveVideo",
+   "pos": [
+    1340,
+    0
+   ],
+   "size": [
+    480,
+    480
+   ],
+   "flags": {},
+   "order": 4,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "video",
+     "name": "video",
+     "type": "VIDEO",
+     "link": 13
+    },
+    {
+     "localized_name": "filename_prefix",
+     "name": "filename_prefix",
+     "type": "STRING",
+     "widget": {
+      "name": "filename_prefix"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "format",
+     "name": "format",
+     "type": "COMBO",
+     "widget": {
+      "name": "format"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "codec",
+     "name": "codec",
+     "type": "COMFY_DYNAMICCOMBO_V3",
+     "widget": {
+      "name": "codec"
+     },
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "video",
+     "name": "video",
+     "type": "VIDEO",
+     "links": null
+    }
+   ],
+   "title": "Realigned clip",
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "0.33.1",
+    "Node name for S&R": "SaveVideo"
+   },
+   "widgets_values": [
+    "realign/realigned",
+    "auto",
+    "auto"
+   ]
+  },
+  {
+   "id": 8,
+   "type": "SaveVideo",
+   "pos": [
+    1340,
+    520
+   ],
+   "size": [
+    480,
+    480
+   ],
+   "flags": {},
+   "order": 5,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "video",
+     "name": "video",
+     "type": "VIDEO",
+     "link": 14
+    },
+    {
+     "localized_name": "filename_prefix",
+     "name": "filename_prefix",
+     "type": "STRING",
+     "widget": {
+      "name": "filename_prefix"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "format",
+     "name": "format",
+     "type": "COMBO",
+     "widget": {
+      "name": "format"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "codec",
+     "name": "codec",
+     "type": "COMFY_DYNAMICCOMBO_V3",
+     "widget": {
+      "name": "codec"
+     },
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "video",
+     "name": "video",
+     "type": "VIDEO",
+     "links": null
+    }
+   ],
+   "title": "Side by side",
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "0.33.1",
+    "Node name for S&R": "SaveVideo"
+   },
+   "widgets_values": [
+    "realign/side_by_side",
+    "auto",
+    "auto"
+   ]
+  }
+ ],
+ "links": [
+  [
+   8,
+   1,
+   0,
+   4,
+   0,
+   "VIDEO"
+  ],
+  [
+   9,
+   2,
+   0,
+   4,
+   1,
+   "VIDEO"
+  ],
+  [
+   10,
+   3,
+   0,
+   4,
+   2,
+   "INTERP_MODEL"
+  ],
+  [
+   11,
+   4,
+   2,
+   5,
+   0,
+   "IMAGE"
+  ],
+  [
+   12,
+   4,
+   3,
+   6,
+   0,
+   "STRING"
+  ],
+  [
+   13,
+   4,
+   0,
+   7,
+   0,
+   "VIDEO"
+  ],
+  [
+   14,
+   4,
+   1,
+   8,
+   0,
+   "VIDEO"
+  ]
+ ],
+ "groups": [],
+ "config": {},
+ "extra": {
+  "ds": {
+   "scale": 0.75,
+   "offset": [
+    40,
+    40
+   ]
+  }
+ },
+ "version": 0.4
+}
