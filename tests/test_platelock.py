@@ -112,5 +112,16 @@ class RenderTest(unittest.TestCase):
             self.assertEqual(info.fps, Fraction(25))
 
 
+class ColourMatchTest(unittest.TestCase):
+    def test_misaligned_model_frames_keep_contrast(self):
+        from platelock.genfill import colour_match
+        rng = np.random.default_rng(1)
+        real = rng.integers(0, 256, (3, 64, 96, 3)).astype(np.uint8)
+        model = np.clip(np.roll(real, 7, axis=2) * 0.8 + 20, 0, 255).astype(np.uint8)
+        matched = colour_match(model, real, [0, 1, 2])
+        self.assertAlmostEqual(matched.std() / real.std(), 1.0, delta=0.05)
+        self.assertAlmostEqual(matched.mean(), real.mean(), delta=2)
+
+
 if __name__ == "__main__":
     unittest.main()

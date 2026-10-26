@@ -77,7 +77,11 @@ def control(frames: np.ndarray, local_targets: list[int], length: int) -> tuple[
 
 
 def colour_match(generated: np.ndarray, actual: np.ndarray, known: list[int]) -> np.ndarray:
-    """Per-channel linear map from the model's rendition of known frames to the real ones, applied to all frames."""
+    """Per-channel mean/spread match from the model's rendition of known frames to the real ones, applied to all frames.
+
+    Moments rather than a pixel regression: the model's frames are never pixel-aligned with
+    the real ones, and a regression on misaligned pixels flattens contrast.
+    """
     g = generated.astype(np.float32)
     if not known:
         return generated
@@ -87,9 +91,9 @@ def colour_match(generated: np.ndarray, actual: np.ndarray, known: list[int]) ->
         gk = np.stack([cv2.resize(f, (a.shape[2], a.shape[1]), interpolation=cv2.INTER_AREA) for f in gk])
     out = np.empty_like(g)
     for c in range(3):
-        x, y = gk[..., c].ravel(), a[..., c].ravel()
-        slope, intercept = np.polyfit(x, y, 1) if x.std() > 1e-3 else (1.0, float(y.mean() - x.mean()))
-        out[..., c] = g[..., c] * slope + intercept
+        x, y = gk[..., c], a[..., c]
+        slope = y.std() / x.std() if x.std() > 1e-3 else 1.0
+        out[..., c] = (g[..., c] - x.mean()) * slope + y.mean()
     return np.clip(out, 0, 255).astype(np.uint8)
 
 
