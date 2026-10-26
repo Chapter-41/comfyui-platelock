@@ -4,3 +4,4 @@ __pycache__/
 *.mov
 *.mp4
 *.npy
+.DS_Store
