@@ -19,6 +19,9 @@ class Tensor(np.ndarray):
     def cpu(self):
         return self
 
+    def float(self):
+        return self
+
     def numpy(self):
         return np.asarray(self)
 
@@ -47,7 +50,20 @@ class NodesTest(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         run = Path(cls.tmp.name)
         cls.out = run / "out"
+        class FrameInterpolate:
+            calls = []
+
+            @classmethod
+            def execute(cls, model, images, multiplier):
+                cls.calls.append(multiplier)
+                a, b = np.asarray(images[0]), np.asarray(images[1])
+                frames = [a + (b - a) * i / multiplier for i in range(multiplier + 1)]
+                return types.SimpleNamespace(args=(np.stack(frames).view(Tensor),))
+
+        cls.FrameInterpolate = FrameInterpolate
         stubs = {
+            "comfy_extras": types.ModuleType("comfy_extras"),
+            "comfy_extras.nodes_frame_interpolation": types.SimpleNamespace(FrameInterpolate=FrameInterpolate),
             "torch": types.SimpleNamespace(from_numpy=lambda a: np.asarray(a).view(Tensor)),
             "comfy_api": types.ModuleType("comfy_api"),
             "comfy_api.input_impl": types.SimpleNamespace(VideoFromFile=VideoFromFile),
@@ -70,6 +86,9 @@ class NodesTest(unittest.TestCase):
         write_video(run / "plate.mp4", cls.plate, "24")
         write_video(run / "gen.mp4", cls.gen, "24")
         cls.pv, cls.gv = VideoFromFile(str(run / "plate.mp4")), VideoFromFile(str(run / "gen.mp4"))
+        cls.short_truth = list(range(70))
+        write_video(run / "short.mp4", restyle(cls.plate[cls.short_truth]), "24")
+        cls.sv = VideoFromFile(str(run / "short.mp4"))
 
     @classmethod
     def tearDownClass(cls):
@@ -84,18 +103,46 @@ class NodesTest(unittest.TestCase):
     def test_realign_video(self):
         from realign.video import probe
         m = self.pack.NODE_CLASS_MAPPINGS
-        self.assertEqual(sorted(m), ["Realign", "RealignImages"])
+        self.assertEqual(sorted(m), ["Realign", "RealignFillMerge", "RealignFillWindow", "RealignImages"])
         for cls in m.values():
             cls.INPUT_TYPES()
-        clip, side, preview, report = m["Realign"]().run(self.pv, self.gv, "25", "mp4")
+        clip, side, preview, report, fill = m["Realign"]().run(self.pv, self.gv, "25", "mp4")
         info = probe(clip.get_stream_source())
         self.assertEqual((info.frames, info.fps), (80, 25))
         self.assertEqual(probe(side.get_stream_source()).frames, 80)
         self.assertEqual(preview.ndim, 4)
         self.assertIn("filled 2", report)
-        sidecar = json.loads(next(self.out.glob("realign/*.json")).read_text())
+        sidecar = json.loads(Path(fill["sidecar"]).read_text())
         self.assertEqual(len(sidecar["time_remap_seconds"]), 80)
         self.assertEqual(set(sidecar["summary"]["interpolated"]), {20, 50})
+
+    def test_interpolation_model_fills_each_gap_once(self):
+        self.FrameInterpolate.calls.clear()
+        m = self.pack.NODE_CLASS_MAPPINGS
+        _, _, _, report, _ = m["Realign"]().run(self.pv, self.gv, "plate", "mp4", interp_model=object())
+        self.assertIn("filled 2", report)
+        self.assertTrue(self.FrameInterpolate.calls)
+        self.assertEqual(set(self.FrameInterpolate.calls), {2})
+
+    def test_generative_fill_of_missing_tail(self):
+        from realign.video import decode_small_rgb
+        m = self.pack.NODE_CLASS_MAPPINGS
+        clip, _, _, report, fill = m["Realign"]().run(self.pv, self.sv, "plate", "mp4")
+        self.assertIn("MISSING 10", report)
+        control, masks, first, last, window, status = m["RealignFillWindow"]().run(fill, 0, 17, "missing", 1280)
+        self.assertEqual(control.shape[0], 17)
+        self.assertEqual(int(masks.reshape(17, -1).max(axis=1).sum()), 10)
+        self.assertTrue(np.allclose(control[np.asarray(masks).reshape(17, -1).max(axis=1) > 0], 0.5))
+        # A perfect "model": the restyled plate for this window.
+        start = window["start"]
+        model_out = np.repeat(restyle(self.plate[start:start + 17])[..., None], 3, axis=3).astype(np.float32)
+        video, status = m["RealignFillMerge"]().run(window, model_out.view(Tensor))
+        self.assertEqual(status, "all frames generated")
+        frames = decode_small_rgb(video.get_stream_source(), 256)
+        self.assertEqual(len(frames), 80)
+        self.assertTrue(all(frames[i].mean() > 10 for i in range(70, 80)))
+        with self.assertRaises(ValueError):
+            m["RealignFillWindow"]().run(fill, 1, 17, "missing", 1280)
 
     def test_realign_images(self):
         frames = lambda a: np.repeat(a[..., None], 3, axis=3).astype(np.float32).view(Tensor)

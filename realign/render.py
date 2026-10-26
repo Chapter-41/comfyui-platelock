@@ -12,10 +12,36 @@ from .plan import Op
 from .video import FrameReader, FrameWriter, probe
 
 
-def render(gen_path: str | Path, ops: list[Op], out_path: str | Path, fps: Fraction, codec: str = "prores") -> int:
+def flow_fill(a: np.ndarray, b: np.ndarray, alphas: list[float]) -> list[np.ndarray]:
+    """Default fill: weights-free optical flow. A fill takes two uint8 RGB frames and returns one frame per alpha."""
+    return [interpolate(a, b, t) for t in alphas]
+
+
+class Filler:
+    """Fills every gap once, with all of its in-between frames in a single call."""
+
+    def __init__(self, ops: list[Op], fill=None):
+        self.fill = fill or flow_fill
+        self.alphas: dict[tuple[int, int], list[float]] = {}
+        for o in ops:
+            if o.op == "interp":
+                self.alphas.setdefault((o.gen, o.gen_b), []).append(o.alpha)
+        self._done: dict[tuple[int, int], dict[float, np.ndarray]] = {}
+
+    def frame(self, o: Op, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        key = (o.gen, o.gen_b)
+        if key not in self._done:
+            alphas = self.alphas[key]
+            self._done = {key: dict(zip(alphas, self.fill(a, b, alphas)))}
+        return self._done[key][o.alpha]
+
+
+def render(gen_path: str | Path, ops: list[Op], out_path: str | Path, fps: Fraction, codec: str = "prores",
+           fill=None) -> int:
     info = probe(gen_path)
     reader = FrameReader(gen_path)
     writer = FrameWriter(out_path, info.width, info.height, fps, codec)
+    filler = Filler(ops, fill)
     cache: dict[int, np.ndarray] = {}
     black = np.zeros((info.height, info.width, 3), np.uint8)
 
@@ -32,7 +58,7 @@ def render(gen_path: str | Path, ops: list[Op], out_path: str | Path, fps: Fract
             if o.op == "copy":
                 frame = get(o.gen)
             elif o.op == "interp":
-                frame = interpolate(get(o.gen), get(o.gen_b), o.alpha)
+                frame = filler.frame(o, get(o.gen), get(o.gen_b))
             else:
                 frame = black
             writer.write(frame)

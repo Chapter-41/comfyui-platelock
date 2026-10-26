@@ -7,8 +7,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .interp import interpolate
 from .plan import Op
+from .render import Filler
 from .video import FrameWriter
 
 GREY, ORANGE, RED, BLUE = (120, 120, 120), (255, 160, 40), (230, 60, 60), (80, 160, 255)
@@ -20,13 +20,15 @@ def _text(img, s, xy, scale=0.5, color=FG, thick=1):
     cv2.putText(img, s, xy, FONT, scale, color, thick, cv2.LINE_AA)
 
 
-def realigned_frames(gen: np.ndarray, ops: list[Op]) -> list[np.ndarray | None]:
+def realigned_frames(gen: np.ndarray, ops: list[Op], fill=None, all_ops: list[Op] | None = None) -> list[np.ndarray | None]:
+    """all_ops: the full plan when `ops` is a subset, so a gap is filled with all its frames at once."""
+    filler = Filler(all_ops or ops, fill)
     out = []
     for o in ops:
         if o.op == "copy":
             out.append(gen[o.gen])
         elif o.op == "interp":
-            out.append(interpolate(gen[o.gen], gen[o.gen_b], o.alpha))
+            out.append(filler.frame(o, gen[o.gen], gen[o.gen_b]))
         else:
             out.append(None)
     return out
@@ -138,7 +140,8 @@ def pick_examples(ops: list[Op], k: int = 3, spacing: int = 15) -> list[int]:
     return sorted(picks[:k])
 
 
-def summary_image(plate: np.ndarray, gen: np.ndarray, ops: list[Op], summary: dict, panel_width: int = 320) -> np.ndarray:
+def summary_image(plate: np.ndarray, gen: np.ndarray, ops: list[Op], summary: dict, panel_width: int = 320,
+                  fill=None) -> np.ndarray:
     """One picture: headline, timeline, and plate / as delivered / realigned at the frames that changed most."""
     ph = int(round(plate.shape[1] * panel_width / plate.shape[2]))
     size = (panel_width, ph)
@@ -156,7 +159,7 @@ def summary_image(plate: np.ndarray, gen: np.ndarray, ops: list[Op], summary: di
         small_gen = np.stack([cv2.resize(f, size, interpolation=cv2.INTER_AREA) for f in gen])
         for p in picks:
             o = ops[p]
-            r = realigned_frames(small_gen, [o])[0]
+            r = realigned_frames(small_gen, [o], fill, ops)[0]
             delivered = small_gen[p] if p < len(small_gen) else None
             parts.append(np.full((8, width, 3), BG, np.uint8))
             parts.append(_row(plate[p], delivered, r, o, len(gen), size))
@@ -164,8 +167,9 @@ def summary_image(plate: np.ndarray, gen: np.ndarray, ops: list[Op], summary: di
 
 
 def compare_video(plate: np.ndarray, gen: np.ndarray, ops: list[Op], summary: dict, out_path: str | Path,
-                  fps: Fraction, panel_width: int = 480, start: int = 0, end: int | None = None) -> int:
+                  fps: Fraction, panel_width: int = 480, start: int = 0, end: int | None = None, fill=None) -> int:
     """Plate | as delivered (frame for frame) | realigned, with status and a timeline cursor."""
+    filler = Filler(ops, fill)
     ph = int(round(plate.shape[1] * panel_width / plate.shape[2]))
     ph -= ph % 2
     size = (panel_width, ph)
@@ -176,7 +180,12 @@ def compare_video(plate: np.ndarray, gen: np.ndarray, ops: list[Op], summary: di
     first = None
     for p in range(start, end):
         o = ops[p]
-        r = realigned_frames(small_gen, [o])[0]
+        if o.op == "copy":
+            r = small_gen[o.gen]
+        elif o.op == "interp":
+            r = filler.frame(o, small_gen[o.gen], small_gen[o.gen_b])
+        else:
+            r = None
         delivered = small_gen[p] if p < len(small_gen) else None
         frame = np.vstack([_row(small_plate[p], delivered, r, o, len(gen), size),
                            timeline(ops, summary, width, cursor=p), legend(width)])
