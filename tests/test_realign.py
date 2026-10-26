@@ -1,0 +1,116 @@
+import subprocess
+import sys
+import tempfile
+import unittest
+from fractions import Fraction
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from realign.core import analyze_arrays  # noqa: E402
+from realign.features import detect_duplicates  # noqa: E402
+
+
+def synthetic_plate(n=160, size=(256, 144), seed=1):
+    """Textured background with two independently moving textured shapes; varying speed, including a pause."""
+    rng = np.random.default_rng(seed)
+    w, h = size
+    bg = cv2.GaussianBlur(rng.random((h, w)).astype(np.float32), (0, 0), 3) * 0.4 + 0.3
+    tex = cv2.GaussianBlur(rng.random((40, 40)).astype(np.float32), (0, 0), 1.5)
+    speed = 1.0 + 0.8 * np.sin(np.linspace(0, 3 * np.pi, n))
+    speed[70:76] = 0.0
+    x = 20 + np.cumsum(speed)
+    frames = []
+    for i in range(n):
+        f = bg.copy()
+        for cx, cy in ((x[i], 40 + 20 * np.sin(i / 15)), (w - x[i] * 0.7, 100 + 10 * np.cos(i / 9))):
+            x0, y0 = int(cx) % (w - 40), int(cy) % (h - 40)
+            f[y0:y0 + 40, x0:x0 + 40] = 0.2 + 0.7 * tex
+        frames.append(f)
+    return np.stack(frames)
+
+
+def restyle(frames, seed=2):
+    rng = np.random.default_rng(seed)
+    out = 1.0 - frames ** 0.7
+    return np.clip(out + rng.normal(0, 0.02, out.shape), 0, 1).astype(np.float32)
+
+
+class RealignTest(unittest.TestCase):
+    def check(self, truth, plate, expect_interp=(), expect_missing=()):
+        gen = restyle(plate[truth])
+        r = analyze_arrays(gen, plate)
+        wrong = [o.plate for o in r.ops if o.op == "copy" and truth[o.gen] != o.plate]
+        self.assertEqual(wrong, [])
+        self.assertTrue(set(expect_interp) <= set(r.summary["interpolated"]), r.summary["interpolated"])
+        self.assertEqual(r.summary["missing_plate_frames"], list(expect_missing))
+        self.assertEqual(len(r.ops), len(plate))
+        return r
+
+    def test_identity(self):
+        plate = synthetic_plate()
+        r = self.check(list(range(len(plate))), plate)
+        self.assertEqual(r.summary["interpolated"], [])
+        self.assertEqual(r.summary["dropped_gen_frames"], [])
+
+    def test_offset_dupes_skips_and_short_tail(self):
+        plate = synthetic_plate()
+        n = len(plate)
+        truth = [0, 0] + list(range(n))   # two padded head frames
+        truth[42] = truth[41]               # repeat replacing plate 40
+        truth.insert(101, truth[100])       # inserted repeat
+        truth.remove(120)                   # single skip
+        truth.remove(130)
+        truth.remove(131)                   # double skip
+        truth = truth[:-4]                  # last 4 plate frames never generated
+        self.check(truth, plate, expect_interp={40, 120, 130, 131}, expect_missing=range(n - 4, n))
+
+    def test_long_generation_is_trimmed(self):
+        plate = synthetic_plate()
+        n = len(plate)
+        truth = list(range(n)) + [n - 1] * 6
+        r = self.check(truth, plate)
+        # Any of the identical trailing frames may be the one kept.
+        self.assertEqual(len(r.summary["dropped_gen_frames"]), 6)
+        self.assertTrue(all(truth[g] == n - 1 for g in r.summary["dropped_gen_frames"]))
+
+    def test_natural_pause_is_not_a_duplicate(self):
+        plate = synthetic_plate()
+        dup = detect_duplicates(restyle(plate))
+        self.assertFalse(dup[70:77].any())
+
+    def test_exact_repeat_is_detected(self):
+        plate = synthetic_plate()
+        truth = list(range(len(plate)))
+        truth[30] = 29
+        dup = detect_duplicates(plate[truth])
+        self.assertTrue(dup[30])
+
+
+class RenderTest(unittest.TestCase):
+    def test_cli_render_matches_plate_count(self):
+        from realign.video import probe
+        plate = synthetic_plate(n=60)
+        truth = list(range(60))
+        truth.remove(30)
+        gen = restyle(plate[truth])
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            for name, frames, fps in (("plate.mp4", plate, "24"), ("gen.mp4", gen, "25")):
+                raw = (np.repeat(frames[..., None], 3, axis=3) * 255).astype(np.uint8)
+                subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
+                                "-s", "256x144", "-r", fps, "-i", "-", "-c:v", "libx264", "-qp", "0",
+                                "-pix_fmt", "yuv444p", str(d / name)], input=raw.tobytes(), check=True)
+            from realign.cli import main
+            code = main([str(d / "plate.mp4"), str(d / "gen.mp4"), "--out", str(d / "out"),
+                         "--render", "--codec", "h264", "--cache", str(d / "cache"), "--fps", "25"])
+            self.assertEqual(code, 0)
+            info = probe(d / "out" / "gen_realigned.mp4")
+            self.assertEqual(info.frames, 60)
+            self.assertEqual(info.fps, Fraction(25))
+
+
+if __name__ == "__main__":
+    unittest.main()
