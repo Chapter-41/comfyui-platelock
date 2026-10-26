@@ -115,6 +115,10 @@ class NodesTest(unittest.TestCase):
         sidecar = json.loads(Path(fill["sidecar"]).read_text())
         self.assertEqual(len(sidecar["time_remap_seconds"]), 80)
         self.assertEqual(set(sidecar["summary"]["interpolated"]), {20, 50})
+        window = m["PlateLockFillWindow"]().run(fill)[9]
+        _, _, preview, report = m["PlateLockFillMerge"]().run(window, None)
+        self.assertIn("filled 2", report)
+        self.assertEqual(preview.shape[0], 1)
 
     def test_interpolation_model_fills_each_gap_once(self):
         self.FrameInterpolate.calls.clear()
