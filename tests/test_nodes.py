@@ -130,7 +130,8 @@ class NodesTest(unittest.TestCase):
         clip, _, _, report, fill = m["PlateLock"]().run(self.pv, self.sv, "plate", "mp4")
         self.assertIn("MISSING 10", report)
         out = m["PlateLockFillWindow"]().run(fill, 0, 25, 9, "missing", 1280)
-        control, masks, context, first, last, width, height, length, window, status = out
+        control, masks, context, first, last, width, height, length, fps, window, status = out
+        self.assertEqual(fps, 24.0)
         self.assertEqual((control.shape[0], length, width % 32, height % 32), (25, 25, 0, 0))
         self.assertEqual(window["start"], 61)
         self.assertEqual(context.shape[0], 9)
@@ -143,8 +144,11 @@ class NodesTest(unittest.TestCase):
         plate = restyle(self.plate[start:start + 25])
         import cv2
         model_out[:len(plate)] = np.stack([cv2.resize(f, (width, height)) for f in plate])[..., None]
-        video, status = m["PlateLockFillMerge"]().run(window, model_out.view(Tensor))
-        self.assertEqual(status, "all frames generated")
+        video, side, preview, report = m["PlateLockFillMerge"]().run(window, model_out.view(Tensor))
+        self.assertIn("generated 10 missing frames with the video model", report)
+        self.assertNotIn("MISSING", report)
+        self.assertTrue(Path(side.get_stream_source()).is_file())
+        self.assertEqual(preview.shape[0], 1)
         frames = decode_small_rgb(video.get_stream_source(), 256)
         self.assertEqual(len(frames), 80)
         self.assertTrue(all(frames[i].mean() > 10 for i in range(70, 80)))

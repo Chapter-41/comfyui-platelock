@@ -47,15 +47,18 @@ def _image(rgb: np.ndarray):
     return torch.from_numpy(rgb.astype(np.float32) / 255.0)[None]
 
 
-def _report(summary: dict) -> str:
+def _report(summary: dict, generated=()) -> str:
     s = summary
     lines = [f"plate {s['plate_frames']} frames, generated {s['gen_frames']} frames -> output {s['plate_frames']} frames"]
     if s["interpolated"]:
         lines.append(f"filled {len(s['interpolated'])} frames the generator skipped or repeated: {s['interpolated']}")
     if s["dropped_gen_frames"]:
         lines.append(f"removed {len(s['dropped_gen_frames'])} extra generated frames: {s['dropped_gen_frames']}")
-    if s["missing_plate_frames"]:
-        lines.append(f"MISSING {len(s['missing_plate_frames'])} plate frames never generated (black): {s['missing_plate_frames']}")
+    if generated:
+        lines.append(f"generated {len(generated)} missing frames with the video model: {sorted(generated)}")
+    missing = [f for f in s["missing_plate_frames"] if f not in generated]
+    if missing:
+        lines.append(f"MISSING {len(missing)} plate frames never generated (black): {missing}")
     if len(lines) == 1:
         lines.append("already in sync, nothing changed")
     return "\n".join(lines)
@@ -166,9 +169,9 @@ def _targets(fill: dict, frames_to_generate: str) -> list[int]:
 class PlateLockFillWindow:
     CATEGORY = CATEGORY
     FUNCTION = "run"
-    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE", "IMAGE", "IMAGE", "INT", "INT", "INT", "PLATELOCK_WINDOW", "STRING")
+    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE", "IMAGE", "IMAGE", "INT", "INT", "INT", "FLOAT", "PLATELOCK_WINDOW", "STRING")
     RETURN_NAMES = ("control_video", "control_masks", "context_frames", "first_frame", "last_frame",
-                    "width", "height", "length", "window", "status")
+                    "width", "height", "length", "fps", "window", "status")
     DESCRIPTION = ("Cuts one window around a gap. LTX: context_frames as a guide at frame 0, width/height/length into the "
                    "empty latent. Wan VACE: control_video + control_masks into WanVaceToVideo. Queue once per window.")
 
@@ -215,16 +218,17 @@ class PlateLockFillWindow:
         to_t = lambda a: torch.from_numpy(np.ascontiguousarray(a))
         ctx = frames[:local[0]] if local[0] else frames[:1]
         return (to_t(video), to_t(mask), to_t(ctx.astype(np.float32) / 255.0), _image(first), _image(last),
-                size[0], size[1], length, info, status)
+                size[0], size[1], length, float(Fraction(fill["fps"])), info, status)
 
 
 class PlateLockFillMerge:
     CATEGORY = CATEGORY
     FUNCTION = "run"
-    RETURN_TYPES = ("VIDEO", "STRING")
-    RETURN_NAMES = ("video", "status")
+    RETURN_TYPES = ("VIDEO", "VIDEO", "IMAGE", "STRING")
+    RETURN_NAMES = ("locked", "side_by_side", "preview", "report")
     OUTPUT_NODE = True
-    DESCRIPTION = "Takes the model's frames for this window, keeps only the generated ones (colour-matched), and re-renders the clip."
+    DESCRIPTION = ("Takes the model's frames for this window, keeps only the missing ones (colour-matched), re-renders the "
+                   "clip and shows what changed, like PlateLock.")
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -242,11 +246,28 @@ class PlateLockFillMerge:
         actual = read_range(window["clip"], window["start"], count, size=(gen.shape[2], gen.shape[1]))
         save_patches(window["work"], window["start"], gen, actual, window["targets"], (info.width, info.height))
         out = Path(window["clip"]).with_name(Path(window["clip"]).stem + "_generated" + Path(window["clip"]).suffix)
-        render_patched(window["clip"], window["work"], out, Fraction(window["fps"]), window["codec"])
+        fps = Fraction(window["fps"])
+        render_patched(window["clip"], window["work"], out, fps, window["codec"])
         done = set(patched_frames(window["work"]))
         todo = [t for t in _targets(window, window["frames_to_generate"]) if t not in done]
-        status = "all frames generated" if not todo else f"{len(todo)} frame(s) still to generate: {todo[:12]}{' ...' if len(todo) > 12 else ''}"
-        return (VideoFromFile(str(out)), status)
+        side_by_side, preview, report = _overview(window, out, done, fps)
+        if todo:
+            report += f"\n{len(todo)} frame(s) still to generate: raise 'window' on the Fill Window node and run again"
+        return (VideoFromFile(str(out)), VideoFromFile(str(side_by_side)), _image(preview), report)
+
+
+def _overview(window: dict, final_clip: Path, generated: set[int], fps: Fraction):
+    """The same side-by-side, preview and report as PlateLock, showing the finished clip."""
+    side = json.loads(Path(window["sidecar"]).read_text())
+    ops = [Op(**o) for o in side["ops"]]
+    plate_rgb = decode_small_rgb(side["plate"]["path"], 480)
+    gen_rgb = decode_small_rgb(side["generated"]["path"], 480)
+    final_rgb = decode_small_rgb(str(final_clip), 480)
+    generated = {g for g in generated if g in set(side["summary"]["missing_plate_frames"])}
+    out = final_clip.with_name(final_clip.stem + "_side_by_side.mp4")
+    compare_video(plate_rgb, gen_rgb, ops, side["summary"], out, fps, final=final_rgb, generated=generated)
+    preview = summary_image(plate_rgb, gen_rgb, ops, side["summary"], final=final_rgb, generated=generated)
+    return out, preview, _report(side["summary"], generated)
 
 
 def _gray(images) -> np.ndarray:

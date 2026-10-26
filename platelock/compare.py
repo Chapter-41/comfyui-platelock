@@ -11,7 +11,7 @@ from .plan import Op
 from .render import Filler
 from .video import FrameWriter
 
-GREY, ORANGE, RED, BLUE = (120, 120, 120), (255, 160, 40), (230, 60, 60), (80, 160, 255)
+GREY, ORANGE, RED, BLUE, PURPLE = (120, 120, 120), (255, 160, 40), (230, 60, 60), (80, 160, 255), (190, 110, 255)
 BG, FG, DIM = (22, 22, 22), (235, 235, 235), (150, 150, 150)
 FONT = cv2.FONT_HERSHEY_DUPLEX
 
@@ -34,7 +34,9 @@ def locked_frames(gen: np.ndarray, ops: list[Op], fill=None, all_ops: list[Op] |
     return out
 
 
-def describe(o: Op) -> tuple[str, tuple]:
+def describe(o: Op, generated=()) -> tuple[str, tuple]:
+    if o.plate in generated:
+        return "GENERATED - video model filled the gap", PURPLE
     if o.op == "copy":
         return f"generated frame {o.gen}", FG
     if o.op == "interp":
@@ -43,7 +45,7 @@ def describe(o: Op) -> tuple[str, tuple]:
     return "MISSING - never generated", RED
 
 
-def headline(summary: dict) -> list[tuple[str, tuple]]:
+def headline(summary: dict, generated=()) -> list[tuple[str, tuple]]:
     s = summary
     dup = set(s["duplicates_in_gen"])
     removed = s["dropped_gen_frames"]
@@ -51,8 +53,11 @@ def headline(summary: dict) -> list[tuple[str, tuple]]:
     facts = []
     if s["interpolated"]:
         facts.append((f"{len(s['interpolated'])} filled", ORANGE))
-    if s["missing_plate_frames"]:
-        facts.append((f"{len(s['missing_plate_frames'])} missing", RED))
+    if generated:
+        facts.append((f"{len(generated)} generated", PURPLE))
+    missing = [p for p in s["missing_plate_frames"] if p not in generated]
+    if missing:
+        facts.append((f"{len(missing)} missing", RED))
     extra = [g for g in removed if g not in dup]
     if extra:
         facts.append((f"{len(extra)} extra removed", BLUE))
@@ -75,13 +80,13 @@ def _removed_positions(ops: list[Op], removed: list[int]) -> list[int]:
     return pos
 
 
-def timeline(ops: list[Op], summary: dict, width: int, cursor: int | None = None) -> np.ndarray:
+def timeline(ops: list[Op], summary: dict, width: int, cursor: int | None = None, generated=()) -> np.ndarray:
     n = len(ops)
     h = 46
     img = np.full((h, width, 3), BG, np.uint8)
     x = lambda p: int(round(p * (width - 1) / max(n, 1)))
     for o in ops:
-        color = GREY if o.op == "copy" else ORANGE if o.op == "interp" else RED
+        color = PURPLE if o.plate in generated else GREY if o.op == "copy" else ORANGE if o.op == "interp" else RED
         cv2.rectangle(img, (x(o.plate), 14), (max(x(o.plate + 1) - 1, x(o.plate)), 34), color, -1)
     for p in _removed_positions(ops, summary["dropped_gen_frames"]):
         cv2.line(img, (x(p), 2), (x(p), 12), BLUE, 2)
@@ -92,10 +97,12 @@ def timeline(ops: list[Op], summary: dict, width: int, cursor: int | None = None
     return img
 
 
-def legend(width: int) -> np.ndarray:
+def legend(width: int, generated=()) -> np.ndarray:
     img = np.full((24, width, 3), BG, np.uint8)
     x = 4
-    for label, color in (("matches plate", GREY), ("filled", ORANGE), ("missing", RED), ("removed generated frame", BLUE)):
+    items = [("matches plate", GREY), ("filled", ORANGE)] + ([("generated", PURPLE)] if generated else []) \
+        + [("missing", RED), ("removed generated frame", BLUE)]
+    for label, color in items:
         cv2.rectangle(img, (x, 7), (x + 12, 19), color, -1)
         _text(img, label, (x + 18, 18), 0.42, DIM)
         x += 30 + int(cv2.getTextSize(label, FONT, 0.42, 1)[0][0])
@@ -115,9 +122,9 @@ def _panel(frame: np.ndarray | None, size: tuple[int, int], title: str, status: 
     return np.vstack([band, img, foot])
 
 
-def _row(plate, delivered, locked, o: Op, gen_count: int, size) -> np.ndarray:
+def _row(plate, delivered, locked, o: Op, gen_count: int, size, generated=()) -> np.ndarray:
     d_status = f"generated frame {o.plate}" if o.plate < gen_count else "clip already ended"
-    r_status, r_color = describe(o)
+    r_status, r_color = describe(o, generated)
     return np.hstack([
         _panel(plate, size, f"PLATE  frame {o.plate}", "reference", DIM),
         _panel(delivered, size, "AS DELIVERED", d_status, DIM),
@@ -141,33 +148,37 @@ def pick_examples(ops: list[Op], k: int = 3, spacing: int = 15) -> list[int]:
 
 
 def summary_image(plate: np.ndarray, gen: np.ndarray, ops: list[Op], summary: dict, panel_width: int = 320,
-                  fill=None) -> np.ndarray:
-    """One picture: headline, timeline, and plate / as delivered / locked at the frames that changed most."""
+                  fill=None, final: np.ndarray | None = None, generated=()) -> np.ndarray:
+    """One picture: headline, timeline, and plate / as delivered / locked at the frames that changed most.
+
+    final: the finished clip; when given, the locked panel shows its frames (e.g. after a video model filled gaps).
+    """
     ph = int(round(plate.shape[1] * panel_width / plate.shape[2]))
     size = (panel_width, ph)
     width = 3 * panel_width
     head = np.full((62, width, 3), BG, np.uint8)
-    lines = headline(summary)
+    lines = headline(summary, generated)
     _text(head, lines[0][0], (8, 24), 0.55, FG)
     x = 8
     for label, color in lines[1]:
         _text(head, label, (x, 50), 0.6, color)
         x += 24 + int(cv2.getTextSize(label, FONT, 0.6, 1)[0][0])
-    parts = [head, timeline(ops, summary, width), legend(width)]
+    parts = [head, timeline(ops, summary, width, generated=generated), legend(width, generated)]
     picks = pick_examples(ops)
     if picks:
         small_gen = np.stack([cv2.resize(f, size, interpolation=cv2.INTER_AREA) for f in gen])
         for p in picks:
             o = ops[p]
-            r = locked_frames(small_gen, [o], fill, ops)[0]
+            r = final[p] if final is not None else locked_frames(small_gen, [o], fill, ops)[0]
             delivered = small_gen[p] if p < len(small_gen) else None
             parts.append(np.full((8, width, 3), BG, np.uint8))
-            parts.append(_row(plate[p], delivered, r, o, len(gen), size))
+            parts.append(_row(plate[p], delivered, r, o, len(gen), size, generated))
     return np.vstack(parts)
 
 
 def compare_video(plate: np.ndarray, gen: np.ndarray, ops: list[Op], summary: dict, out_path: str | Path,
-                  fps: Fraction, panel_width: int = 480, start: int = 0, end: int | None = None, fill=None) -> int:
+                  fps: Fraction, panel_width: int = 480, start: int = 0, end: int | None = None, fill=None,
+                  final: np.ndarray | None = None, generated=()) -> int:
     """Plate | as delivered (frame for frame) | locked, with status and a timeline cursor."""
     filler = Filler(ops, fill)
     ph = int(round(plate.shape[1] * panel_width / plate.shape[2]))
@@ -180,15 +191,17 @@ def compare_video(plate: np.ndarray, gen: np.ndarray, ops: list[Op], summary: di
     first = None
     for p in range(start, end):
         o = ops[p]
-        if o.op == "copy":
+        if final is not None:
+            r = cv2.resize(final[p], size, interpolation=cv2.INTER_AREA)
+        elif o.op == "copy":
             r = small_gen[o.gen]
         elif o.op == "interp":
             r = filler.frame(o, small_gen[o.gen], small_gen[o.gen_b])
         else:
             r = None
         delivered = small_gen[p] if p < len(small_gen) else None
-        frame = np.vstack([_row(small_plate[p], delivered, r, o, len(gen), size),
-                           timeline(ops, summary, width, cursor=p), legend(width)])
+        frame = np.vstack([_row(small_plate[p], delivered, r, o, len(gen), size, generated),
+                           timeline(ops, summary, width, cursor=p, generated=generated), legend(width, generated)])
         if first is None:
             h = frame.shape[0] + frame.shape[0] % 2
             writer = FrameWriter(out_path, width, h, fps, codec="h264")
