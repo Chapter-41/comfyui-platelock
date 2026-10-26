@@ -55,7 +55,7 @@
     "Node name for S&R": "LoadVideo"
    },
    "widgets_values": [
-    "platelock_006_016_plate.mp4",
+    "platelock_006_016_v002_plate.mp4",
     "image"
    ]
   },
@@ -110,7 +110,7 @@
     "Node name for S&R": "LoadVideo"
    },
    "widgets_values": [
-    "platelock_006_016_seedance_v002.mp4",
+    "platelock_006_016_v002_gen.mp4",
     "image"
    ]
   },
