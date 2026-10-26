@@ -106,7 +106,13 @@ class NodesTest(unittest.TestCase):
         self.assertEqual(sorted(m), ["PlateLock", "PlateLockFillMerge", "PlateLockFillWindow", "PlateLockImages"])
         for cls in m.values():
             cls.INPUT_TYPES()
-        clip, side, preview, report, fill = m["PlateLock"]().run(self.pv, self.gv, "25", "mp4")
+        out = m["PlateLock"]().run(self.pv, self.gv, "25", "mp4")
+        clip, side, preview, report, fill = out["result"]
+        viewer = Path(fill["viewer"])
+        self.assertEqual(out["ui"]["platelock_viewer"][0]["subfolder"], "platelock/" + viewer.name)
+        manifest = json.loads((viewer / "manifest.json").read_text())
+        self.assertEqual((len(manifest["ops"]), len(manifest["drift"]), manifest["counts"]["l"]), (80, 80, 80))
+        self.assertIn("timing:", report)
         info = probe(clip.get_stream_source())
         self.assertEqual((info.frames, info.fps), (80, 25))
         self.assertEqual(probe(side.get_stream_source()).frames, 80)
@@ -116,14 +122,14 @@ class NodesTest(unittest.TestCase):
         self.assertEqual(len(sidecar["time_remap_seconds"]), 80)
         self.assertEqual(set(sidecar["summary"]["interpolated"]), {20, 50})
         window = m["PlateLockFillWindow"]().run(fill)[9]
-        _, _, preview, report = m["PlateLockFillMerge"]().run(window, None)
+        _, _, preview, report = m["PlateLockFillMerge"]().run(window, None)["result"]
         self.assertIn("filled 2", report)
         self.assertEqual(preview.shape[0], 1)
 
     def test_interpolation_model_fills_each_gap_once(self):
         self.FrameInterpolate.calls.clear()
         m = self.pack.NODE_CLASS_MAPPINGS
-        _, _, _, report, _ = m["PlateLock"]().run(self.pv, self.gv, "plate", "mp4", interp_model=object())
+        _, _, _, report, _ = m["PlateLock"]().run(self.pv, self.gv, "plate", "mp4", interp_model=object())["result"]
         self.assertIn("filled 2", report)
         self.assertTrue(self.FrameInterpolate.calls)
         self.assertEqual(set(self.FrameInterpolate.calls), {2})
@@ -131,7 +137,7 @@ class NodesTest(unittest.TestCase):
     def test_generative_fill_of_missing_tail(self):
         from platelock.video import decode_small_rgb
         m = self.pack.NODE_CLASS_MAPPINGS
-        clip, _, _, report, fill = m["PlateLock"]().run(self.pv, self.sv, "plate", "mp4")
+        clip, _, _, report, fill = m["PlateLock"]().run(self.pv, self.sv, "plate", "mp4")["result"]
         self.assertIn("MISSING 10", report)
         out = m["PlateLockFillWindow"]().run(fill)
         control, masks, context, first, last, width, height, length, fps, window, status = out
@@ -148,7 +154,7 @@ class NodesTest(unittest.TestCase):
         plate = restyle(self.plate[start:start + 33])
         import cv2
         model_out[:len(plate)] = np.stack([cv2.resize(f, (width, height)) for f in plate])[..., None]
-        video, side, preview, report = m["PlateLockFillMerge"]().run(window, model_out.view(Tensor))
+        video, side, preview, report = m["PlateLockFillMerge"]().run(window, model_out.view(Tensor))["result"]
         self.assertIn("generated 10 frames with the video model", report)
         self.assertNotIn("MISSING", report)
         self.assertNotIn("running again", report)

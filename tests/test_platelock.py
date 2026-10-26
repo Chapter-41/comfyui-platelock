@@ -139,5 +139,21 @@ class NextWindowTest(unittest.TestCase):
         self.assertIsNone(next_window([], 50))
 
 
+class DriftTest(unittest.TestCase):
+    def test_finds_known_shift_and_time_offset(self):
+        import cv2
+        from platelock import drift
+        rng = np.random.default_rng(1)
+        world = cv2.GaussianBlur((rng.random((400, 900)) * 255).astype(np.uint8), (0, 0), 2)
+        plate = np.stack([cv2.cvtColor(world[50:230, 6 * t:6 * t + 320], cv2.COLOR_GRAY2RGB) for t in range(40)])
+        result = np.roll(plate, 3, axis=2)
+        result[20] = plate[21]
+        d = drift.measure(plate, result, [True] * 40, plate_width=320)
+        s = drift.summary(d)
+        self.assertEqual(s["off_in_time"], [20])
+        self.assertAlmostEqual(s["median_shift_px"], 3.0, delta=0.3)
+        self.assertTrue(any("look like a neighbouring plate frame" in l for l in drift.report_lines(s)))
+
+
 if __name__ == "__main__":
     unittest.main()

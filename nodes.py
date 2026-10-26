@@ -10,6 +10,7 @@ import numpy as np
 
 from .platelock.compare import compare_video, locked_frames, summary_image
 from .platelock.core import analyze_arrays
+from .platelock.drift import measure, report_lines, summary as drift_summary
 from .platelock.plan import Op, plan_to_json
 from .platelock.render import render
 from .platelock.video import decode_small_rgb, load_gray_cached, probe
@@ -148,19 +149,43 @@ class PlateLock:
         plate_rgb, gen_rgb = decode_small_rgb(plate_path, 480), decode_small_rgb(gen_path, 480)
         side = out_dir / f"{stem}_side_by_side.mp4"
         compare_video(plate_rgb, gen_rgb, r.ops, r.summary, side, fps, fill=fill)
+        drift, exact = _exactness(plate_rgb, clip, r.ops, set(), plate_info.width)
         sidecar = out_dir / f"{stem}.json"
         sidecar.write_text(json.dumps({
             "plate": plate_info.to_dict(), "generated": gen_info.to_dict(), "output": str(clip),
             "fill_method": "frame interpolation model" if fill else "optical flow",
-            "summary": r.summary, "ops": plan_to_json(r.ops), "time_remap_seconds": _time_remap(r.ops, gen_info.fps),
+            "summary": r.summary, "exactness": exact, "ops": plan_to_json(r.ops),
+            "time_remap_seconds": _time_remap(r.ops, gen_info.fps),
         }, indent=1))
         preview = summary_image(plate_rgb, gen_rgb, r.ops, r.summary, fill=fill)
+        viewer = out_dir / f"{stem}_viewer"
         fill_state = {
             "clip": str(clip), "sidecar": str(sidecar), "work": str(out_dir / stem), "codec": codec,
-            "fps": f"{fps.numerator}/{fps.denominator}", "frames": len(r.ops),
+            "fps": f"{fps.numerator}/{fps.denominator}", "frames": len(r.ops), "viewer": str(viewer),
             "missing": r.summary["missing_plate_frames"], "filled": r.summary["interpolated"],
         }
-        return (VideoFromFile(str(clip)), VideoFromFile(str(side)), _image(preview), _report(r.summary), fill_state)
+        _export_viewer(viewer, plate_path, gen_path, clip, r.ops, set(), drift, exact, fps, "LOCKED")
+        report = "\n".join([_report(r.summary)] + report_lines(exact))
+        return _with_viewer(viewer, (VideoFromFile(str(clip)), VideoFromFile(str(side)), _image(preview), report, fill_state))
+
+
+def _exactness(plate_rgb: np.ndarray, result_clip, ops: list[Op], generated: set[int], width: int):
+    result_rgb = decode_small_rgb(str(result_clip), 480)
+    drift = measure(plate_rgb, result_rgb, [o.op != "missing" or o.plate in generated for o in ops], width)
+    return drift, drift_summary(drift)
+
+
+def _export_viewer(folder: Path, plate, generated, result, ops, done: set[int], drift, exact, fps: Fraction,
+                   label: str, sources: bool = True) -> None:
+    from .platelock.viewer import export
+    export(folder, plate, generated, result, {
+        "name": Path(str(generated)).stem, "fps": f"{fps.numerator}/{fps.denominator}", "label": label,
+        "ops": plan_to_json(ops), "generated": sorted(done), "drift": drift, "exactness": exact,
+    }, sources=sources)
+
+
+def _with_viewer(folder: Path, result: tuple) -> dict:
+    return {"ui": {"platelock_viewer": [{"subfolder": f"platelock/{folder.name}"}]}, "result": result}
 
 
 class PlateLockFillWindow:
@@ -253,7 +278,8 @@ class PlateLockFillMerge:
         fps = Fraction(window["fps"])
         if not window["targets"]:
             side_by_side, preview, report = _overview(window, Path(window["clip"]), set(), fps)
-            return (VideoFromFile(window["clip"]), VideoFromFile(str(side_by_side)), _image(preview), report)
+            return _with_viewer(Path(window["viewer"]),
+                                (VideoFromFile(window["clip"]), VideoFromFile(str(side_by_side)), _image(preview), report))
         gen = (images.cpu().numpy() * 255.0).round().clip(0, 255).astype(np.uint8)
         start, count = window["start"], window["count"]
         if len(gen) < count:
@@ -272,7 +298,8 @@ class PlateLockFillMerge:
         if todo and written and prompt:
             _queue_again(prompt, extra_pnginfo)
             report += f"\n{len(todo)} frame(s) left: running again automatically"
-        return (VideoFromFile(str(out)), VideoFromFile(str(side_by_side)), _image(preview), report)
+        return _with_viewer(Path(window["viewer"]),
+                            (VideoFromFile(str(out)), VideoFromFile(str(side_by_side)), _image(preview), report))
 
 
 def _overview(window: dict, final_clip: Path, generated: set[int], fps: Fraction):
@@ -285,7 +312,10 @@ def _overview(window: dict, final_clip: Path, generated: set[int], fps: Fraction
     out = final_clip.with_name(final_clip.stem + "_side_by_side.mp4")
     compare_video(plate_rgb, gen_rgb, ops, side["summary"], out, fps, final=final_rgb, generated=generated)
     preview = summary_image(plate_rgb, gen_rgb, ops, side["summary"], final=final_rgb, generated=generated)
-    return out, preview, _report(side["summary"], generated)
+    drift, exact = _exactness(plate_rgb, final_clip, ops, generated, side["plate"]["width"])
+    _export_viewer(Path(window["viewer"]), side["plate"]["path"], side["generated"]["path"], final_clip, ops, generated,
+                   drift, exact, fps, "RESULT", sources=False)
+    return out, preview, "\n".join([_report(side["summary"], generated)] + report_lines(exact))
 
 
 def _gray(images) -> np.ndarray:
