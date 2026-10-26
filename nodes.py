@@ -180,8 +180,8 @@ class PlateLockFillWindow:
         return {
             "required": {
                 "fill": ("PLATELOCK_FILL",),
-                "window": ("INT", {"default": 0, "min": 0, "max": 9999, "control_after_generate": "increment",
-                                   "tooltip": "Which window to prepare; increments after each queue."}),
+                "window": ("INT", {"default": 0, "min": 0, "max": 9999,
+                                   "tooltip": "Which gap to fill. With several gaps, raise by one and run again."}),
                 "length": ("INT", {"default": 33, "min": 9, "max": 1025, "step": 8,
                                    "tooltip": "Frames per window; 8n+1 suits both LTX and Wan (4n+1)."}),
                 "context": ("INT", {"default": 9, "min": 1, "max": 1024,
