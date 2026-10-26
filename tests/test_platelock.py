@@ -155,5 +155,26 @@ class DriftTest(unittest.TestCase):
         self.assertTrue(any("look like a neighbouring plate frame" in l for l in drift.report_lines(s)))
 
 
+class BenchmarkJudgeTest(unittest.TestCase):
+    def test_scores_copies_skips_and_missing(self):
+        from platelock.benchmark import cases, judge
+        from platelock.plan import Op
+        shows = cases(40, np.random.default_rng(0))["skips_every_17"][:-5]
+        ops = []
+        for p in range(40):
+            if p in shows:
+                ops.append(Op(p, "copy", gen=shows.index(p)))
+            elif p < max(shows):
+                ops.append(Op(p, "interp", gen=shows.index(p - 1), gen_b=shows.index(p + 1), alpha=0.5))
+            else:
+                ops.append(Op(p, "missing"))
+        self.assertEqual(judge(ops, shows, 40)["correct"], 40)
+        ops[5] = Op(5, "copy", gen=shows.index(6))
+        ops[16] = Op(16, "copy", gen=shows.index(15))
+        r = judge(ops, shows, 40)
+        self.assertEqual((r["correct"], r["within_1"]), (38, 39))
+        self.assertEqual(r["errors"], {"wrong frame": [5], "skip not detected": [16]})
+
+
 if __name__ == "__main__":
     unittest.main()
