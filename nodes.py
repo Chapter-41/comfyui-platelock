@@ -163,70 +163,71 @@ class PlateLock:
         return (VideoFromFile(str(clip)), VideoFromFile(str(side)), _image(preview), _report(r.summary), fill_state)
 
 
-def _targets(fill: dict, frames_to_generate: str) -> list[int]:
-    return sorted(set(fill["missing"]) | (set(fill["filled"]) if frames_to_generate == "missing and filled" else set()))
-
-
 class PlateLockFillWindow:
     CATEGORY = CATEGORY
     FUNCTION = "run"
     RETURN_TYPES = ("IMAGE", "MASK", "IMAGE", "IMAGE", "IMAGE", "INT", "INT", "INT", "FLOAT", "PLATELOCK_WINDOW", "STRING")
     RETURN_NAMES = ("control_video", "control_masks", "context_frames", "first_frame", "last_frame",
                     "width", "height", "length", "fps", "window", "status")
-    DESCRIPTION = ("Cuts one window around a gap. LTX: context_frames as a guide at frame 0, width/height/length into the "
-                   "empty latent. Wan VACE: control_video + control_masks into WanVaceToVideo. Queue once per window.")
+    DESCRIPTION = ("Picks the next missing gap and cuts a window around it, sized automatically. LTX: context_frames as a "
+                   "guide at frame 0, width/height/length into the empty latent. Wan VACE: control_video + control_masks. "
+                   "Fill Merge queues the workflow again until every gap is generated.")
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "fill": ("PLATELOCK_FILL",),
-                "window": ("INT", {"default": 0, "min": 0, "max": 9999,
-                                   "tooltip": "Which gap to fill. With several gaps, raise by one and run again."}),
-                "length": ("INT", {"default": 33, "min": 9, "max": 1025, "step": 8,
-                                   "tooltip": "Frames per window; 8n+1 suits both LTX and Wan (4n+1)."}),
-                "context": ("INT", {"default": 9, "min": 1, "max": 1024,
-                                    "tooltip": "Real frames before the gap the model continues from. For LTX use 8n+1 (9, 17)."}),
-                "frames_to_generate": (["missing", "missing and filled"], {"default": "missing",
-                                       "tooltip": "missing: only frames the generator never made. 'missing and filled' also "
-                                                  "redoes frames RIFE filled, one gap per run (missing gaps come first)."}),
-                "max_width": ("INT", {"default": 1280, "min": 256, "max": 8192, "step": 32}),
-            }
-        }
+        return {"required": {"fill": ("PLATELOCK_FILL",)}}
 
-    def run(self, fill, window, length, context, frames_to_generate, max_width):
+    @classmethod
+    def IS_CHANGED(cls, **_):
+        return float("nan")
+
+    def run(self, fill):
         import torch
-        from .platelock.genfill import control, model_size, overlay_patches, read_range, windows
-        if context >= length:
-            raise ValueError(f"context ({context}) must be smaller than length ({length}): "
-                             "the window needs room for the frames to generate.")
-        targets = _targets(fill, frames_to_generate)
-        missing = set(fill["missing"])
-        wins = windows(targets, fill["frames"], length, context)
-        wins.sort(key=lambda w: not missing.intersection(w[1]))
-        if not wins:
-            raise ValueError("Nothing to generate: every plate frame is already there.")
-        if window >= len(wins):
-            raise ValueError(f"There are only {len(wins)} gap(s) to fill: set window to 0"
-                             f"{f' to {len(wins) - 1}' if len(wins) > 1 else ''}.")
-        start, covered = wins[window]
+        from .platelock.genfill import control, model_size, next_window, overlay_patches, patched_frames, read_range
+        if not fill["missing"]:
+            return _blocked(len(self.RETURN_TYPES))
+        work = Path(fill["work"])
+        if not set(fill["missing"]) - set(patched_frames(work)):
+            for patch in work.glob("patch_*.png"):
+                patch.unlink()
+        remaining = sorted(set(fill["missing"]) - set(patched_frames(work)))
+        w = next_window(remaining, fill["frames"])
         clip_info = probe(fill["clip"])
-        size = model_size(clip_info.width, clip_info.height, max_width)
-        frames = read_range(fill["clip"], start, min(length, fill["frames"] - start), size=size)
-        frames = overlay_patches(frames, start, fill["work"])
-        local = [t - start for t in covered]
-        video, mask = control(frames, local, length)
-        before = max([i for i in range(len(frames)) if i not in local and i < min(local)], default=None)
-        after = min([i for i in range(len(frames)) if i not in local and i > max(local)], default=None)
-        first = frames[before] if before is not None else frames[0]
-        last = frames[after] if after is not None else first
-        info = {**fill, "start": start, "targets": local, "length": length, "frames_to_generate": frames_to_generate}
-        status = (f"window {window + 1}/{len(wins)}: plate frames {start}-{start + length - 1}, "
-                  f"generating {len(covered)} frame(s) {covered[0]}-{covered[-1]}")
-        to_t = lambda a: torch.from_numpy(np.ascontiguousarray(a))
-        ctx = frames[:local[0]] if local[0] else frames[:1]
-        return (to_t(video), to_t(mask), to_t(ctx.astype(np.float32) / 255.0), _image(first), _image(last),
-                size[0], size[1], length, float(Fraction(fill["fps"])), info, status)
+        size = model_size(clip_info.width, clip_info.height, 1280)
+        frames = overlay_patches(read_range(fill["clip"], w["start"], w["count"], size=size), w["start"], work)
+        local = [t - w["start"] for t in w["targets"]]
+        if w["reverse"]:
+            frames = frames[::-1]
+            local = sorted(w["count"] - 1 - t for t in local)
+        video, mask = control(frames, local, w["length"])
+        context = frames[:w["context"]]
+        info = {**fill, **w}
+        status = (f"generating {len(w['targets'])} of {len(remaining)} missing frame(s): "
+                  f"{w['targets'][0]}-{w['targets'][-1]}{' (backwards from the frames after)' if w['reverse'] else ''}")
+        to_t = lambda x: torch.from_numpy(np.ascontiguousarray(x))
+        return (to_t(video), to_t(mask), to_t(context.astype(np.float32) / 255.0), _image(context[-1]),
+                _image(frames[min(local[-1] + 1, len(frames) - 1)]), size[0], size[1], w["length"],
+                float(Fraction(fill["fps"])), info, status)
+
+
+def _blocked(n: int):
+    try:
+        from comfy_execution.graph import ExecutionBlocker
+    except ImportError:  # pragma: no cover
+        raise ValueError("Nothing to generate: no plate frames are missing.")
+    return tuple(ExecutionBlocker(None) for _ in range(n))
+
+
+def _queue_again(prompt: dict, extra_pnginfo) -> None:
+    """Queue the same workflow once more so the next gap gets generated."""
+    import threading
+    import urllib.request
+    from server import PromptServer
+    server = PromptServer.instance
+    body = {"prompt": prompt, "client_id": server.client_id, "extra_data": {"extra_pnginfo": extra_pnginfo or {}}}
+    request = urllib.request.Request(f"http://127.0.0.1:{server.port}/prompt", json.dumps(body).encode(),
+                                     {"Content-Type": "application/json"})
+    threading.Thread(target=lambda: urllib.request.urlopen(request, timeout=30).read(), daemon=True).start()
 
 
 class PlateLockFillMerge:
@@ -236,31 +237,35 @@ class PlateLockFillMerge:
     RETURN_NAMES = ("locked", "side_by_side", "preview", "report")
     OUTPUT_NODE = True
     DESCRIPTION = ("Takes the model's frames for this window, keeps only the missing ones (colour-matched), re-renders the "
-                   "clip and shows what changed, like PlateLock.")
+                   "clip and shows what changed, like PlateLock. Runs the workflow again until no gap is left.")
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {"required": {"window": ("PLATELOCK_WINDOW",), "images": ("IMAGE", {"tooltip": "Decoded model output for this window."})}}
+        return {"required": {"window": ("PLATELOCK_WINDOW",), "images": ("IMAGE", {"tooltip": "Decoded model output for this window."})},
+                "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"}}
 
-    def run(self, window, images):
+    def run(self, window, images, prompt=None, extra_pnginfo=None):
         from comfy_api.input_impl import VideoFromFile
         from .platelock.genfill import patched_frames, read_range, render_patched, save_patches
         gen = (images.cpu().numpy() * 255.0).round().clip(0, 255).astype(np.uint8)
-        if len(gen) < max(window["targets"]) + 1:
+        start, count = window["start"], window["count"]
+        if len(gen) < count:
             raise ValueError(f"Model returned {len(gen)} frames; this window needs {window['length']} "
                              "(trim any reference frames first).")
+        gen = gen[:count][::-1] if window["reverse"] else gen[:count]
         info = probe(window["clip"])
-        count = min(window["length"], window["frames"] - window["start"])
-        actual = read_range(window["clip"], window["start"], count, size=(gen.shape[2], gen.shape[1]))
-        save_patches(window["work"], window["start"], gen, actual, window["targets"], (info.width, info.height))
+        actual = read_range(window["clip"], start, count, size=(gen.shape[2], gen.shape[1]))
+        written = save_patches(window["work"], start, gen, actual, [t - start for t in window["targets"]],
+                               (info.width, info.height))
         out = Path(window["clip"]).with_name(Path(window["clip"]).stem + "_generated" + Path(window["clip"]).suffix)
         fps = Fraction(window["fps"])
         render_patched(window["clip"], window["work"], out, fps, window["codec"])
         done = set(patched_frames(window["work"]))
-        todo = [t for t in _targets(window, window["frames_to_generate"]) if t not in done]
+        todo = [t for t in window["missing"] if t not in done]
         side_by_side, preview, report = _overview(window, out, done, fps)
-        if todo:
-            report += f"\n{len(todo)} frame(s) still to generate: raise 'window' on the Fill Window node and run again"
+        if todo and written and prompt:
+            _queue_again(prompt, extra_pnginfo)
+            report += f"\n{len(todo)} frame(s) left: running again automatically"
         return (VideoFromFile(str(out)), VideoFromFile(str(side_by_side)), _image(preview), report)
 
 

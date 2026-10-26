@@ -129,33 +129,30 @@ class NodesTest(unittest.TestCase):
         m = self.pack.NODE_CLASS_MAPPINGS
         clip, _, _, report, fill = m["PlateLock"]().run(self.pv, self.sv, "plate", "mp4")
         self.assertIn("MISSING 10", report)
-        out = m["PlateLockFillWindow"]().run(fill, 0, 25, 9, "missing", 1280)
+        out = m["PlateLockFillWindow"]().run(fill)
         control, masks, context, first, last, width, height, length, fps, window, status = out
         self.assertEqual(fps, 24.0)
-        self.assertEqual((control.shape[0], length, width % 32, height % 32), (25, 25, 0, 0))
-        self.assertEqual(window["start"], 61)
-        self.assertEqual(context.shape[0], 9)
-        generate = np.asarray(masks).reshape(25, -1).max(axis=1) > 0
-        self.assertEqual(int(generate[:19].sum()), 10)
+        self.assertEqual((control.shape[0], length, width % 32, height % 32), (33, 33, 0, 0))
+        self.assertEqual((window["start"], window["count"]), (53, 27))
+        self.assertEqual(context.shape[0], 17)
+        generate = np.asarray(masks).reshape(33, -1).max(axis=1) > 0
+        self.assertEqual(int(generate[:27].sum()), 10)
         self.assertTrue(np.allclose(control[generate], 0.5))
         # A perfect "model": the restyled plate for this window (the plate ends 6 frames before the window does).
         start = window["start"]
-        model_out = np.zeros((25, height, width, 3), np.float32)
-        plate = restyle(self.plate[start:start + 25])
+        model_out = np.zeros((33, height, width, 3), np.float32)
+        plate = restyle(self.plate[start:start + 33])
         import cv2
         model_out[:len(plate)] = np.stack([cv2.resize(f, (width, height)) for f in plate])[..., None]
         video, side, preview, report = m["PlateLockFillMerge"]().run(window, model_out.view(Tensor))
         self.assertIn("generated 10 frames with the video model", report)
         self.assertNotIn("MISSING", report)
+        self.assertNotIn("running again", report)
         self.assertTrue(Path(side.get_stream_source()).is_file())
         self.assertEqual(preview.shape[0], 1)
         frames = decode_small_rgb(video.get_stream_source(), 256)
         self.assertEqual(len(frames), 80)
         self.assertTrue(all(frames[i].mean() > 10 for i in range(70, 80)))
-        with self.assertRaisesRegex(ValueError, "only 1 gap"):
-            m["PlateLockFillWindow"]().run(fill, 1, 25, 9, "missing", 1280)
-        with self.assertRaisesRegex(ValueError, "smaller than length"):
-            m["PlateLockFillWindow"]().run(fill, 0, 25, 25, "missing", 1280)
 
     def test_platelock_images(self):
         frames = lambda a: np.repeat(a[..., None], 3, axis=3).astype(np.float32).view(Tensor)

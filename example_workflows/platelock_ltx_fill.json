@@ -283,51 +283,6 @@
      "name": "fill",
      "type": "PLATELOCK_FILL",
      "link": 48
-    },
-    {
-     "localized_name": "window",
-     "name": "window",
-     "type": "INT",
-     "widget": {
-      "name": "window"
-     },
-     "link": null
-    },
-    {
-     "localized_name": "length",
-     "name": "length",
-     "type": "INT",
-     "widget": {
-      "name": "length"
-     },
-     "link": null
-    },
-    {
-     "localized_name": "context",
-     "name": "context",
-     "type": "INT",
-     "widget": {
-      "name": "context"
-     },
-     "link": null
-    },
-    {
-     "localized_name": "frames_to_generate",
-     "name": "frames_to_generate",
-     "type": "COMBO",
-     "widget": {
-      "name": "frames_to_generate"
-     },
-     "link": null
-    },
-    {
-     "localized_name": "max_width",
-     "name": "max_width",
-     "type": "INT",
-     "widget": {
-      "name": "max_width"
-     },
-     "link": null
     }
    ],
    "outputs": [
@@ -416,13 +371,7 @@
     "ver": "ecddeff90567522b0cce68448fa530f3310e7bb8",
     "Node name for S&R": "PlateLockFillWindow"
    },
-   "widgets_values": [
-    0,
-    33,
-    9,
-    "missing",
-    1280
-   ]
+   "widgets_values": []
   },
   {
    "id": 40,

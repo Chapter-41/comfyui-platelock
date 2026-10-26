@@ -39,6 +39,39 @@ def windows(targets: list[int], frames: int, length: int, context: int = 9) -> l
     return out
 
 
+def _ltx_frames(n: int) -> int:
+    """Smallest 8k+1 frame count >= n (LTX and Wan both accept it)."""
+    return max(9, -(-(n - 1) // 8) * 8 + 1)
+
+
+def next_window(remaining: list[int], frames: int, max_context: int = 17, max_length: int = 121) -> dict | None:
+    """Plan the window for the first run of frames still to generate, or None when nothing is left.
+
+    The model continues from up to `max_context` real frames (8k+1). A gap at the very start has
+    nothing before it, so it is generated backwards from the frames after it (`reverse`).
+    Model frame i is plate frame start+i, or start+count-1-i when reversed. Gaps longer than one
+    window are finished by the next call, which uses the frames generated so far as context.
+    """
+    todo = sorted(set(remaining))
+    if not todo:
+        return None
+    a = b = todo[0]
+    while b + 1 in todo:
+        b += 1
+    reverse = a == 0
+    available = frames - 1 - b if reverse else a
+    if available < 1:
+        raise ValueError("No real frames next to the gap to continue from.")
+    context = min(max_context, (available - 1) // 8 * 8 + 1)
+    gap = min(b - a + 1, max_length - context)
+    covered = list(range(b - gap + 1, b + 1)) if reverse else list(range(a, a + gap))
+    length = _ltx_frames(context + gap)
+    start = covered[0] if reverse else a - context
+    count = context + gap if reverse else min(length, frames - start)
+    return {"start": start, "count": count, "length": length, "context": context,
+            "targets": covered, "reverse": reverse}
+
+
 def model_size(width: int, height: int, max_width: int, multiple: int = 32) -> tuple[int, int]:
     """Largest size up to max_width that keeps the aspect and is a multiple of `multiple` (video models need it)."""
     w = min(width, max_width) // multiple * multiple

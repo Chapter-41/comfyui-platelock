@@ -123,5 +123,21 @@ class ColourMatchTest(unittest.TestCase):
         self.assertAlmostEqual(matched.mean(), real.mean(), delta=2)
 
 
+class NextWindowTest(unittest.TestCase):
+    def test_tail_head_and_long_gaps(self):
+        from platelock.genfill import next_window
+        tail = next_window(list(range(362, 375)), 375)
+        self.assertEqual((tail["start"], tail["context"], tail["length"], tail["reverse"]), (345, 17, 33, False))
+        self.assertEqual(tail["targets"], list(range(362, 375)))
+        head = next_window([0, 1, 2, 3, 4], 100)
+        self.assertTrue(head["reverse"])
+        self.assertEqual((head["start"], head["count"], head["length"]), (0, 22, 25))
+        long = next_window(list(range(100, 400)), 400)
+        self.assertEqual((len(long["targets"]), long["length"]), (104, 121))
+        short_context = next_window([5, 6], 50)
+        self.assertEqual((short_context["start"], short_context["context"]), (4, 1))
+        self.assertIsNone(next_window([], 50))
+
+
 if __name__ == "__main__":
     unittest.main()
