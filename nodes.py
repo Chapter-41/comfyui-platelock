@@ -16,6 +16,8 @@ from .platelock.render import render
 from .platelock.video import decode_small_rgb, load_gray_cached, probe
 
 CATEGORY = "PlateLock"
+FILL_MODES = ["interpolate (RIFE)", "generate (LTX)", "none (debug)"]
+_continue = [0]
 
 
 def _video_path(video) -> str:
@@ -86,6 +88,11 @@ def _mask_array(mask) -> np.ndarray | None:
     return m[0] if m.ndim == 3 else m
 
 
+def hold_fill(a: np.ndarray, b: np.ndarray, alphas: list[float]) -> list[np.ndarray]:
+    """No new pixels: each in-between repeats the nearer generated frame."""
+    return [a if t < 0.5 else b for t in alphas]
+
+
 def model_fill(interp_model):
     """Fill gaps with a native ComfyUI frame interpolation model (RIFE or FILM from Load Frame Interpolation Model)."""
     import torch
@@ -124,6 +131,10 @@ class PlateLock:
                 "output_fps": ("STRING", {"default": "plate",
                                           "tooltip": "'plate', or e.g. 25. Only the timebase changes, never the frames."}),
                 "format": (["mp4", "prores"], {"default": "mp4"}),
+                "fill_frames": (FILL_MODES, {"default": FILL_MODES[0], "tooltip":
+                    "interpolate: RIFE makes the frames the generator skipped or repeated. "
+                    "generate: also has the video model (LTX) make frames that were never generated; needs the Fill nodes. "
+                    "none: debug, no new frames: skipped frames hold the nearest generated frame, missing ones stay black."}),
             },
             "optional": {
                 "interp_model": ("INTERP_MODEL", {"tooltip": "RIFE or FILM from 'Load Frame Interpolation Model'. "
@@ -132,14 +143,15 @@ class PlateLock:
             },
         }
 
-    def run(self, plate, generated, output_fps, format, interp_model=None, mask=None):
+    def run(self, plate, generated, output_fps, format, fill_frames=FILL_MODES[0], interp_model=None, mask=None):
         from comfy_api.input_impl import VideoFromFile
         plate_path, gen_path = _video_path(plate), _video_path(generated)
         plate_info, gen_info = probe(plate_path), probe(gen_path)
         out_dir, cache = _dirs()
         r = analyze_arrays(load_gray_cached(gen_path, cache), load_gray_cached(plate_path, cache), mask=_mask_array(mask))
         fps = plate_info.fps if output_fps.strip() in ("", "plate") else Fraction(output_fps.strip())
-        fill = model_fill(interp_model) if interp_model is not None else None
+        debug = fill_frames.startswith("none")
+        fill = hold_fill if debug else model_fill(interp_model) if interp_model is not None else None
 
         stem = f"{Path(gen_path).stem}_platelock_{time.strftime('%Y%m%d_%H%M%S')}"
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -153,7 +165,7 @@ class PlateLock:
         sidecar = out_dir / f"{stem}.json"
         sidecar.write_text(json.dumps({
             "plate": plate_info.to_dict(), "generated": gen_info.to_dict(), "output": str(clip),
-            "fill_method": "frame interpolation model" if fill else "optical flow",
+            "fill_method": "none (hold)" if debug else "frame interpolation model" if fill else "optical flow",
             "summary": r.summary, "exactness": exact, "ops": plan_to_json(r.ops),
             "time_remap_seconds": _time_remap(r.ops, gen_info.fps),
         }, indent=1))
@@ -162,11 +174,16 @@ class PlateLock:
         fill_state = {
             "clip": str(clip), "sidecar": str(sidecar), "work": str(out_dir / stem), "codec": codec,
             "fps": f"{fps.numerator}/{fps.denominator}", "frames": len(r.ops), "viewer": str(viewer),
+            "generate": fill_frames.startswith("generate"),
             "missing": r.summary["missing_plate_frames"], "filled": r.summary["interpolated"],
         }
         _export_viewer(viewer, plate_path, gen_path, clip, r.ops, set(), drift, exact, fps, "LOCKED")
-        report = "\n".join([_report(r.summary)] + report_lines(exact))
-        return _with_viewer(viewer, (VideoFromFile(str(clip)), VideoFromFile(str(side)), _image(preview), report, fill_state))
+        lines = [_report(r.summary)] + report_lines(exact)
+        if debug and r.summary["interpolated"]:
+            lines.insert(1, "debug: no frames were made; 'filled' frames hold the nearest generated frame")
+        final = not (fill_state["generate"] and fill_state["missing"])
+        return _with_viewer(viewer, (VideoFromFile(str(clip)), VideoFromFile(str(side)), _image(preview),
+                                     "\n".join(lines), fill_state), final)
 
 
 def _exactness(plate_rgb: np.ndarray, result_clip, ops: list[Op], generated: set[int], width: int):
@@ -184,8 +201,8 @@ def _export_viewer(folder: Path, plate, generated, result, ops, done: set[int], 
     }, sources=sources)
 
 
-def _with_viewer(folder: Path, result: tuple) -> dict:
-    return {"ui": {"platelock_viewer": [{"subfolder": f"platelock/{folder.name}"}]}, "result": result}
+def _with_viewer(folder: Path, result: tuple, final: bool = True) -> dict:
+    return {"ui": {"platelock_viewer": [{"subfolder": f"platelock/{folder.name}", "final": final}]}, "result": result}
 
 
 class PlateLockFillWindow:
@@ -196,7 +213,8 @@ class PlateLockFillWindow:
                     "width", "height", "length", "fps", "window", "status")
     DESCRIPTION = ("Picks the next missing gap and cuts a window around it, sized automatically. LTX: context_frames as a "
                    "guide at frame 0, width/height/length into the empty latent. Wan VACE: control_video + control_masks. "
-                   "Fill Merge queues the workflow again until every gap is generated.")
+                   "Only runs when PlateLock's fill_frames is 'generate' and frames are missing; otherwise the model "
+                   "nodes are skipped. Fill Merge queues the workflow again until every gap is generated.")
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -204,17 +222,17 @@ class PlateLockFillWindow:
 
     @classmethod
     def IS_CHANGED(cls, **_):
-        return float("nan")
+        return _continue[0]
 
     def run(self, fill):
         import torch
         from .platelock.genfill import control, model_size, next_window, overlay_patches, patched_frames, read_range
-        if not fill["missing"]:
-            return self._nothing(fill)
+        if not (fill.get("generate") and fill["missing"]):
+            return _blocked(len(self.RETURN_TYPES))
         work = Path(fill["work"])
-        if not set(fill["missing"]) - set(patched_frames(work)):
-            for patch in work.glob("patch_*.png"):
-                patch.unlink()
+        remaining = sorted(set(fill["missing"]) - set(patched_frames(work)))
+        if not remaining:
+            return self._nothing(fill)
         remaining = sorted(set(fill["missing"]) - set(patched_frames(work)))
         w = next_window(remaining, fill["frames"])
         clip_info = probe(fill["clip"])
@@ -236,7 +254,7 @@ class PlateLockFillWindow:
 
     @staticmethod
     def _nothing(fill):
-        """No frame is missing: a tiny window so the model step is instant and Merge still shows the overview."""
+        """Every gap is already generated: a tiny window so the model step is instant and Merge shows the result."""
         import torch
         frames = np.zeros((9, 64, 64, 3), np.float32)
         info = {**fill, "start": 0, "count": 0, "length": 9, "context": 1, "targets": [], "reverse": False}
@@ -244,6 +262,15 @@ class PlateLockFillWindow:
                 torch.from_numpy(frames[:1]), 64, 64, 9, float(Fraction(fill["fps"])), info, "nothing missing")
 
 
+
+
+def _blocked(n: int):
+    """Skip every node behind this one (the video model and Merge)."""
+    try:
+        from comfy_execution.graph import ExecutionBlocker
+    except ImportError:  # pragma: no cover - outside ComfyUI
+        return (None,) * n
+    return tuple(ExecutionBlocker(None) for _ in range(n))
 
 
 def _queue_again(prompt: dict, extra_pnginfo) -> None:
@@ -296,6 +323,7 @@ class PlateLockFillMerge:
         todo = [t for t in window["missing"] if t not in done]
         side_by_side, preview, report = _overview(window, out, done, fps)
         if todo and written and prompt:
+            _continue[0] += 1
             _queue_again(prompt, extra_pnginfo)
             report += f"\n{len(todo)} frame(s) left: running again automatically"
         return _with_viewer(Path(window["viewer"]),

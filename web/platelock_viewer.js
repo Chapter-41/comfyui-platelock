@@ -341,8 +341,12 @@ app.registerExtension({
     nodeType.prototype.onExecuted = function (message) {
       onExecuted?.apply(this, arguments);
       const info = message?.platelock_viewer?.[0];
-      const fillUsed = nodeData.name === "PlateLock" && this.outputs?.find((o) => o.name === "fill")?.links?.length;
-      if (!info || fillUsed) return;
+      if (!info) return;
+      if (info.final === false) {
+        if (this.platelockViewer) this.platelockViewer.root.style.display = "none";
+        return;
+      }
+      if (this.platelockViewer) this.platelockViewer.root.style.display = "";
       if (!this.platelockViewer) {
         this.platelockViewer = new Viewer();
         this.addDOMWidget("viewer", "platelock_viewer", this.platelockViewer.root, {
