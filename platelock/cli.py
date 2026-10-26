@@ -1,4 +1,4 @@
-"""realign PLATE GEN --out DIR [--render]"""
+"""platelock PLATE GEN --out DIR [--render]"""
 from __future__ import annotations
 
 import argparse
@@ -27,7 +27,7 @@ def analyze(plate_path: str, gen_path: str, cache_dir: str | None = None, max_in
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="realign", description="Retime a generated video onto its source plate frame by frame.")
+    ap = argparse.ArgumentParser(prog="platelock", description="Retime a generated video onto its source plate frame by frame.")
     ap.add_argument("plate")
     ap.add_argument("gen")
     ap.add_argument("--out", required=True, type=Path)
@@ -38,17 +38,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max-interp", type=int, default=4, help="longest gap to interpolate; longer gaps are reported missing")
     ap.add_argument("--motion-weight", type=float, default=0.5)
     ap.add_argument("--stiffness", type=float, default=2.0, help="higher = fewer retiming events; lower = more sensitive")
-    ap.add_argument("--cache", default=str(Path.home() / ".cache" / "realign"))
+    ap.add_argument("--cache", default=str(Path.home() / ".cache" / "platelock"))
     a = ap.parse_args(argv)
 
     t0 = time.time()
     report, ops, dup, plate_info = analyze(a.plate, a.gen, a.cache, a.max_interp, a.motion_weight, a.stiffness)
     a.out.mkdir(parents=True, exist_ok=True)
     stem = Path(a.gen).stem
-    strip_chart(ops, dup, a.out / f"{stem}_realign.png")
+    strip_chart(ops, dup, a.out / f"{stem}_platelock.png")
     if a.render:
         ext = "mov" if a.codec == "prores" else "mp4"
-        out_clip = a.out / f"{stem}_realigned.{ext}"
+        out_clip = a.out / f"{stem}_locked.{ext}"
         fps = Fraction(a.fps) if a.fps else plate_info.fps
         written = render(a.gen, ops, out_clip, fps, a.codec)
         report["output"] = {"path": str(out_clip), "frames": written}
@@ -59,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
         fps = Fraction(a.fps) if a.fps else plate_info.fps
         compare_video(plate_rgb, gen_rgb, ops, report["summary"], a.out / f"{stem}_compare.mp4", fps)
     report["seconds"] = round(time.time() - t0, 2)
-    (a.out / f"{stem}_realign.json").write_text(json.dumps({**report, "plan": plan_to_json(ops)}, indent=1))
+    (a.out / f"{stem}_platelock.json").write_text(json.dumps({**report, "plan": plan_to_json(ops)}, indent=1))
     print(json.dumps(report, indent=2))
     return 0 if report["summary"]["complete"] else 2
 

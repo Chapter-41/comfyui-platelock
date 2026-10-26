@@ -20,7 +20,7 @@ def _text(img, s, xy, scale=0.5, color=FG, thick=1):
     cv2.putText(img, s, xy, FONT, scale, color, thick, cv2.LINE_AA)
 
 
-def realigned_frames(gen: np.ndarray, ops: list[Op], fill=None, all_ops: list[Op] | None = None) -> list[np.ndarray | None]:
+def locked_frames(gen: np.ndarray, ops: list[Op], fill=None, all_ops: list[Op] | None = None) -> list[np.ndarray | None]:
     """all_ops: the full plan when `ops` is a subset, so a gap is filled with all its frames at once."""
     filler = Filler(all_ops or ops, fill)
     out = []
@@ -115,13 +115,13 @@ def _panel(frame: np.ndarray | None, size: tuple[int, int], title: str, status: 
     return np.vstack([band, img, foot])
 
 
-def _row(plate, delivered, realigned, o: Op, gen_count: int, size) -> np.ndarray:
+def _row(plate, delivered, locked, o: Op, gen_count: int, size) -> np.ndarray:
     d_status = f"generated frame {o.plate}" if o.plate < gen_count else "clip already ended"
     r_status, r_color = describe(o)
     return np.hstack([
         _panel(plate, size, f"PLATE  frame {o.plate}", "reference", DIM),
         _panel(delivered, size, "AS DELIVERED", d_status, DIM),
-        _panel(realigned, size, "REALIGNED", r_status, r_color),
+        _panel(locked, size, "LOCKED", r_status, r_color),
     ])
 
 
@@ -142,7 +142,7 @@ def pick_examples(ops: list[Op], k: int = 3, spacing: int = 15) -> list[int]:
 
 def summary_image(plate: np.ndarray, gen: np.ndarray, ops: list[Op], summary: dict, panel_width: int = 320,
                   fill=None) -> np.ndarray:
-    """One picture: headline, timeline, and plate / as delivered / realigned at the frames that changed most."""
+    """One picture: headline, timeline, and plate / as delivered / locked at the frames that changed most."""
     ph = int(round(plate.shape[1] * panel_width / plate.shape[2]))
     size = (panel_width, ph)
     width = 3 * panel_width
@@ -159,7 +159,7 @@ def summary_image(plate: np.ndarray, gen: np.ndarray, ops: list[Op], summary: di
         small_gen = np.stack([cv2.resize(f, size, interpolation=cv2.INTER_AREA) for f in gen])
         for p in picks:
             o = ops[p]
-            r = realigned_frames(small_gen, [o], fill, ops)[0]
+            r = locked_frames(small_gen, [o], fill, ops)[0]
             delivered = small_gen[p] if p < len(small_gen) else None
             parts.append(np.full((8, width, 3), BG, np.uint8))
             parts.append(_row(plate[p], delivered, r, o, len(gen), size))
@@ -168,7 +168,7 @@ def summary_image(plate: np.ndarray, gen: np.ndarray, ops: list[Op], summary: di
 
 def compare_video(plate: np.ndarray, gen: np.ndarray, ops: list[Op], summary: dict, out_path: str | Path,
                   fps: Fraction, panel_width: int = 480, start: int = 0, end: int | None = None, fill=None) -> int:
-    """Plate | as delivered (frame for frame) | realigned, with status and a timeline cursor."""
+    """Plate | as delivered (frame for frame) | locked, with status and a timeline cursor."""
     filler = Filler(ops, fill)
     ph = int(round(plate.shape[1] * panel_width / plate.shape[2]))
     ph -= ph % 2

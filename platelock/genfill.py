@@ -1,6 +1,6 @@
 """Generative gap filling with any video model that can inpaint in time (Wan VACE, LTX first/last frame).
 
-The realigned clip is cut into fixed-length windows around the frames to
+The locked clip is cut into fixed-length windows around the frames to
 generate. Each window becomes a control video (known frames kept, frames to
 generate set to neutral gray) and a mask (1 = generate). The model's output is
 merged back frame-exactly: only masked frames are taken, colour-matched to the
@@ -108,7 +108,7 @@ def patched_frames(work: str | Path) -> list[int]:
 
 
 def render_patched(clip: str | Path, work: str | Path, out_path: str | Path, fps: Fraction, codec: str) -> int:
-    """Re-encode the realigned clip with stored patches in place of their frames."""
+    """Re-encode the locked clip with stored patches in place of their frames."""
     info = probe(clip)
     patches = set(patched_frames(work))
     reader = FrameReader(clip)

@@ -9,8 +9,8 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from realign.core import analyze_arrays  # noqa: E402
-from realign.features import detect_duplicates  # noqa: E402
+from platelock.core import analyze_arrays  # noqa: E402
+from platelock.features import detect_duplicates  # noqa: E402
 
 
 def synthetic_plate(n=160, size=(256, 144), seed=1):
@@ -38,7 +38,7 @@ def restyle(frames, seed=2):
     return np.clip(out + rng.normal(0, 0.02, out.shape), 0, 1).astype(np.float32)
 
 
-class RealignTest(unittest.TestCase):
+class PlateLockTest(unittest.TestCase):
     def check(self, truth, plate, expect_interp=(), expect_missing=()):
         gen = restyle(plate[truth])
         r = analyze_arrays(gen, plate)
@@ -91,7 +91,7 @@ class RealignTest(unittest.TestCase):
 
 class RenderTest(unittest.TestCase):
     def test_cli_render_matches_plate_count(self):
-        from realign.video import probe
+        from platelock.video import probe
         plate = synthetic_plate(n=60)
         truth = list(range(60))
         truth.remove(30)
@@ -103,11 +103,11 @@ class RenderTest(unittest.TestCase):
                 subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
                                 "-s", "256x144", "-r", fps, "-i", "-", "-c:v", "libx264", "-qp", "0",
                                 "-pix_fmt", "yuv444p", str(d / name)], input=raw.tobytes(), check=True)
-            from realign.cli import main
+            from platelock.cli import main
             code = main([str(d / "plate.mp4"), str(d / "gen.mp4"), "--out", str(d / "out"),
                          "--render", "--codec", "h264", "--cache", str(d / "cache"), "--fps", "25"])
             self.assertEqual(code, 0)
-            info = probe(d / "out" / "gen_realigned.mp4")
+            info = probe(d / "out" / "gen_locked.mp4")
             self.assertEqual(info.frames, 60)
             self.assertEqual(info.fps, Fraction(25))
 

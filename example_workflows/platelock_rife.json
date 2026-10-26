@@ -55,7 +55,7 @@
     "Node name for S&R": "LoadVideo"
    },
    "widgets_values": [
-    "realign_006_016_plate.mp4",
+    "platelock_006_016_plate.mp4",
     "image"
    ]
   },
@@ -110,7 +110,7 @@
     "Node name for S&R": "LoadVideo"
    },
    "widgets_values": [
-    "realign_006_016_seedance_v002.mp4",
+    "platelock_006_016_seedance_v002.mp4",
     "image"
    ]
   },
@@ -161,7 +161,7 @@
   },
   {
    "id": 4,
-   "type": "Realign",
+   "type": "PlateLock",
    "pos": [
     420,
     300
@@ -221,8 +221,8 @@
    ],
    "outputs": [
     {
-     "localized_name": "realigned",
-     "name": "realigned",
+     "localized_name": "locked",
+     "name": "locked",
      "type": "VIDEO",
      "links": [
       13
@@ -255,14 +255,14 @@
     {
      "localized_name": "fill",
      "name": "fill",
-     "type": "REALIGN_FILL",
+     "type": "PLATELOCK_FILL",
      "links": null
     }
    ],
    "properties": {
-    "aux_id": "Chapter-41/comfyui-realign",
+    "aux_id": "Chapter-41/comfyui-platelock",
     "ver": "09a487aca528621a967b9c6db2fe1a6408e468cf",
-    "Node name for S&R": "Realign"
+    "Node name for S&R": "PlateLock"
    },
    "widgets_values": [
     "plate",
@@ -401,14 +401,14 @@
      "links": null
     }
    ],
-   "title": "Realigned clip",
+   "title": "PlateLocked clip",
    "properties": {
     "cnr_id": "comfy-core",
     "ver": "0.33.1",
     "Node name for S&R": "SaveVideo"
    },
    "widgets_values": [
-    "realign/realigned",
+    "platelock/locked",
     "auto",
     "auto"
    ]
@@ -477,7 +477,7 @@
     "Node name for S&R": "SaveVideo"
    },
    "widgets_values": [
-    "realign/side_by_side",
+    "platelock/side_by_side",
     "auto",
     "auto"
    ]

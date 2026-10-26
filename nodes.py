@@ -1,4 +1,4 @@
-"""ComfyUI nodes. Realign streams from video files; Realign (images) is for short IMAGE batches."""
+"""ComfyUI nodes. PlateLock streams from video files; PlateLock (images) is for short IMAGE batches."""
 from __future__ import annotations
 
 import json
@@ -8,13 +8,13 @@ from pathlib import Path
 
 import numpy as np
 
-from .realign.compare import compare_video, realigned_frames, summary_image
-from .realign.core import analyze_arrays
-from .realign.plan import Op, plan_to_json
-from .realign.render import render
-from .realign.video import decode_small_rgb, load_gray_cached, probe
+from .platelock.compare import compare_video, locked_frames, summary_image
+from .platelock.core import analyze_arrays
+from .platelock.plan import Op, plan_to_json
+from .platelock.render import render
+from .platelock.video import decode_small_rgb, load_gray_cached, probe
 
-CATEGORY = "Realign"
+CATEGORY = "PlateLock"
 
 
 def _video_path(video) -> str:
@@ -23,7 +23,7 @@ def _video_path(video) -> str:
     except ImportError:  # pragma: no cover - outside ComfyUI
         VideoFromFile = ()
     if VideoFromFile and not isinstance(video, VideoFromFile):
-        raise ValueError("Realign needs a file-backed VIDEO (Load Video). For frame batches use Realign (images).")
+        raise ValueError("PlateLock needs a file-backed VIDEO (Load Video). For frame batches use PlateLock (images).")
     path = video.get_stream_source()
     start, duration = video.get_active_trim_window() if hasattr(video, "get_active_trim_window") else (0, 0)
     if start or duration > 0:
@@ -38,8 +38,8 @@ def _dirs() -> tuple[Path, Path]:
         import folder_paths
         out, tmp = Path(folder_paths.get_output_directory()), Path(folder_paths.get_temp_directory())
     except ImportError:  # pragma: no cover
-        out = tmp = Path.home() / ".cache" / "realign"
-    return out / "realign", tmp / "realign_cache"
+        out = tmp = Path.home() / ".cache" / "platelock"
+    return out / "platelock", tmp / "platelock_cache"
 
 
 def _image(rgb: np.ndarray):
@@ -101,11 +101,11 @@ def model_fill(interp_model):
     return fill
 
 
-class Realign:
+class PlateLock:
     CATEGORY = CATEGORY
     FUNCTION = "run"
-    RETURN_TYPES = ("VIDEO", "VIDEO", "IMAGE", "STRING", "REALIGN_FILL")
-    RETURN_NAMES = ("realigned", "side_by_side", "preview", "report", "fill")
+    RETURN_TYPES = ("VIDEO", "VIDEO", "IMAGE", "STRING", "PLATELOCK_FILL")
+    RETURN_NAMES = ("locked", "side_by_side", "preview", "report", "fill")
     OUTPUT_NODE = True
     DESCRIPTION = ("Puts a generated video back on the plate's timing: one output frame per plate frame. "
                    "Skipped or repeated frames are filled, extra frames removed, never-generated frames left black and reported.")
@@ -136,7 +136,7 @@ class Realign:
         fps = plate_info.fps if output_fps.strip() in ("", "plate") else Fraction(output_fps.strip())
         fill = model_fill(interp_model) if interp_model is not None else None
 
-        stem = f"{Path(gen_path).stem}_realign_{time.strftime('%Y%m%d_%H%M%S')}"
+        stem = f"{Path(gen_path).stem}_platelock_{time.strftime('%Y%m%d_%H%M%S')}"
         out_dir.mkdir(parents=True, exist_ok=True)
         codec = "prores" if format == "prores" else "h264"
         clip = out_dir / f"{stem}.{'mov' if format == 'prores' else 'mp4'}"
@@ -163,10 +163,10 @@ def _targets(fill: dict, frames_to_generate: str) -> list[int]:
     return sorted(set(fill["missing"]) | (set(fill["filled"]) if frames_to_generate == "missing and filled" else set()))
 
 
-class RealignFillWindow:
+class PlateLockFillWindow:
     CATEGORY = CATEGORY
     FUNCTION = "run"
-    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE", "IMAGE", "REALIGN_WINDOW", "STRING")
+    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE", "IMAGE", "PLATELOCK_WINDOW", "STRING")
     RETURN_NAMES = ("control_video", "control_masks", "first_frame", "last_frame", "window", "status")
     DESCRIPTION = ("Cuts one window around frames to generate. Wan VACE: control_video + control_masks into WanVaceToVideo "
                    "(length = this window's length). LTX: first_frame / last_frame as guides. Queue once per window.")
@@ -175,7 +175,7 @@ class RealignFillWindow:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "fill": ("REALIGN_FILL",),
+                "fill": ("PLATELOCK_FILL",),
                 "window": ("INT", {"default": 0, "min": 0, "max": 9999, "control_after_generate": "increment",
                                    "tooltip": "Which window to prepare; increments after each queue."}),
                 "length": ("INT", {"default": 81, "min": 9, "max": 1025, "step": 8,
@@ -188,7 +188,7 @@ class RealignFillWindow:
 
     def run(self, fill, window, length, frames_to_generate, max_width):
         import torch
-        from .realign.genfill import control, read_range, windows
+        from .platelock.genfill import control, read_range, windows
         targets = _targets(fill, frames_to_generate)
         wins = windows(targets, fill["frames"], length)
         if not wins:
@@ -210,7 +210,7 @@ class RealignFillWindow:
         return (to_t(video), to_t(mask), _image(first), _image(last), info, status)
 
 
-class RealignFillMerge:
+class PlateLockFillMerge:
     CATEGORY = CATEGORY
     FUNCTION = "run"
     RETURN_TYPES = ("VIDEO", "STRING")
@@ -220,11 +220,11 @@ class RealignFillMerge:
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {"required": {"window": ("REALIGN_WINDOW",), "images": ("IMAGE", {"tooltip": "Decoded model output for this window."})}}
+        return {"required": {"window": ("PLATELOCK_WINDOW",), "images": ("IMAGE", {"tooltip": "Decoded model output for this window."})}}
 
     def run(self, window, images):
         from comfy_api.input_impl import VideoFromFile
-        from .realign.genfill import patched_frames, read_range, render_patched, save_patches
+        from .platelock.genfill import patched_frames, read_range, render_patched, save_patches
         gen = (images.cpu().numpy() * 255.0).round().clip(0, 255).astype(np.uint8)
         if len(gen) < max(window["targets"]) + 1:
             raise ValueError(f"Model returned {len(gen)} frames; this window needs {window['length']} "
@@ -252,12 +252,12 @@ def _gray(images) -> np.ndarray:
     return np.stack([cv2.resize(f, (256, h), interpolation=cv2.INTER_AREA) for f in g])
 
 
-class RealignImages:
+class PlateLockImages:
     CATEGORY = CATEGORY
     FUNCTION = "run"
     RETURN_TYPES = ("IMAGE", "IMAGE", "STRING")
-    RETURN_NAMES = ("realigned", "preview", "report")
-    DESCRIPTION = "Same as Realign, for short IMAGE batches. Use Realign for long or 4K clips."
+    RETURN_NAMES = ("locked", "preview", "report")
+    DESCRIPTION = "Same as PlateLock, for short IMAGE batches. Use PlateLock for long or 4K clips."
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -268,13 +268,13 @@ class RealignImages:
         r = analyze_arrays(_gray(generated), _gray(plate), mask=_mask_array(mask))
         gen8 = (generated.cpu().numpy() * 255).astype(np.uint8)
         plate8 = (plate.cpu().numpy() * 255).astype(np.uint8)
-        frames = [f if f is not None else np.zeros_like(gen8[0]) for f in realigned_frames(gen8, r.ops)]
+        frames = [f if f is not None else np.zeros_like(gen8[0]) for f in locked_frames(gen8, r.ops)]
         preview = summary_image(plate8, gen8, r.ops, r.summary)
         return (torch.from_numpy(np.stack(frames).astype(np.float32) / 255.0), _image(preview), _report(r.summary))
 
 
-NODE_CLASS_MAPPINGS = {"Realign": Realign, "RealignImages": RealignImages,
-                       "RealignFillWindow": RealignFillWindow, "RealignFillMerge": RealignFillMerge}
-NODE_DISPLAY_NAME_MAPPINGS = {"Realign": "Realign", "RealignImages": "Realign (images)",
-                              "RealignFillWindow": "Realign Fill · Window (for Wan VACE / LTX)",
-                              "RealignFillMerge": "Realign Fill · Merge"}
+NODE_CLASS_MAPPINGS = {"PlateLock": PlateLock, "PlateLockImages": PlateLockImages,
+                       "PlateLockFillWindow": PlateLockFillWindow, "PlateLockFillMerge": PlateLockFillMerge}
+NODE_DISPLAY_NAME_MAPPINGS = {"PlateLock": "PlateLock", "PlateLockImages": "PlateLock (images)",
+                              "PlateLockFillWindow": "PlateLock Fill · Window (for Wan VACE / LTX)",
+                              "PlateLockFillMerge": "PlateLock Fill · Merge"}
