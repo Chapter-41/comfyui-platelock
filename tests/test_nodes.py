@@ -46,6 +46,7 @@ class NodesTest(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         run = Path(cls.tmp.name)
+        cls.out = run / "out"
         stubs = {
             "torch": types.SimpleNamespace(from_numpy=lambda a: np.asarray(a).view(Tensor)),
             "comfy_api": types.ModuleType("comfy_api"),
@@ -80,31 +81,27 @@ class NodesTest(unittest.TestCase):
         sys.modules.pop("comfyui_realign", None)
         cls.tmp.cleanup()
 
-    def test_analyze_render_remap(self):
+    def test_realign_video(self):
         from realign.video import probe
         m = self.pack.NODE_CLASS_MAPPINGS
+        self.assertEqual(sorted(m), ["Realign", "RealignImages"])
         for cls in m.values():
             cls.INPUT_TYPES()
-        plan, report, chart, mask = m["RealignAnalyze"]().analyze(self.pv, self.gv, 0.5, 2.0, 4, True)
-        self.assertIn("COMPLETE", report)
-        self.assertEqual(plan["summary"]["duplicates_in_gen"], [20])
-        self.assertEqual(set(plan["summary"]["interpolated"]), {20, 50})
-        self.assertEqual(chart.ndim, 4)
-        self.assertEqual(mask.shape[1:3], (144, 256))
-
-        _, path = m["RealignRender"]().render(self.gv, plan, "25", "h264", "t")
-        info = probe(path)
+        clip, side, preview, report = m["Realign"]().run(self.pv, self.gv, "25", "mp4")
+        info = probe(clip.get_stream_source())
         self.assertEqual((info.frames, info.fps), (80, 25))
+        self.assertEqual(probe(side.get_stream_source()).frames, 80)
+        self.assertEqual(preview.ndim, 4)
+        self.assertIn("filled 2", report)
+        sidecar = json.loads(next(self.out.glob("realign/*.json")).read_text())
+        self.assertEqual(len(sidecar["time_remap_seconds"]), 80)
+        self.assertEqual(set(sidecar["summary"]["interpolated"]), {20, 50})
 
-        keys = json.loads(m["RealignTimeRemap"]().export(plan)[0])["keys"]
-        self.assertEqual(len(keys), 80)
-        self.assertEqual(keys[20]["op"], "interp")
-
-    def test_images_node(self):
+    def test_realign_images(self):
         frames = lambda a: np.repeat(a[..., None], 3, axis=3).astype(np.float32).view(Tensor)
-        imgs, report, _ = self.pack.NODE_CLASS_MAPPINGS["RealignImages"]().run(
-            frames(self.plate), frames(self.gen), 0.5, 2.0, 4, True)
+        imgs, preview, report = self.pack.NODE_CLASS_MAPPINGS["RealignImages"]().run(frames(self.plate), frames(self.gen))
         self.assertEqual(imgs.shape, (80, 144, 256, 3))
+        self.assertIn("filled 2", report)
 
 
 if __name__ == "__main__":

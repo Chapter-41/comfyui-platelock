@@ -7,10 +7,13 @@ import time
 from fractions import Fraction
 from pathlib import Path
 
+import cv2
+
+from .compare import compare_video, summary_image
 from .core import analyze_arrays
 from .plan import plan_to_json
 from .render import render, strip_chart
-from .video import load_gray_cached, probe
+from .video import decode_small_rgb, load_gray_cached, probe
 
 
 def analyze(plate_path: str, gen_path: str, cache_dir: str | None = None, max_interp: int = 4,
@@ -30,6 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--render", action="store_true", help="write the repaired clip at the plate frame rate")
     ap.add_argument("--codec", choices=["prores", "h264"], default="prores")
+    ap.add_argument("--preview", action="store_true", help="write a summary image and a side-by-side comparison video")
     ap.add_argument("--fps", help="output timebase (e.g. 25 when the plate was a 24 fps reinterpretation); frames are unchanged")
     ap.add_argument("--max-interp", type=int, default=4, help="longest gap to interpolate; longer gaps are reported missing")
     ap.add_argument("--motion-weight", type=float, default=0.5)
@@ -48,6 +52,12 @@ def main(argv: list[str] | None = None) -> int:
         fps = Fraction(a.fps) if a.fps else plate_info.fps
         written = render(a.gen, ops, out_clip, fps, a.codec)
         report["output"] = {"path": str(out_clip), "frames": written}
+    if a.preview:
+        plate_rgb, gen_rgb = decode_small_rgb(a.plate, 480), decode_small_rgb(a.gen, 480)
+        img = summary_image(plate_rgb, gen_rgb, ops, report["summary"])
+        cv2.imwrite(str(a.out / f"{stem}_summary.png"), cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+        fps = Fraction(a.fps) if a.fps else plate_info.fps
+        compare_video(plate_rgb, gen_rgb, ops, report["summary"], a.out / f"{stem}_compare.mp4", fps)
     report["seconds"] = round(time.time() - t0, 2)
     (a.out / f"{stem}_realign.json").write_text(json.dumps({**report, "plan": plan_to_json(ops)}, indent=1))
     print(json.dumps(report, indent=2))

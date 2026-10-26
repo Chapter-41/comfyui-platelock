@@ -66,6 +66,18 @@ def decode_gray(path: str | Path, width: int = 256) -> np.ndarray:
     return frames.astype(np.float32) / 255.0
 
 
+def decode_small_rgb(path: str | Path, width: int = 480) -> np.ndarray:
+    """Every frame as small uint8 RGB, shape (N, H, W, 3), for previews."""
+    info = probe(path)
+    height = max(2, round(info.height * width / info.width / 2) * 2)
+    cmd = [
+        "ffmpeg", "-v", "error", "-i", str(path), "-map", "0:v:0", "-fps_mode", "passthrough",
+        "-vf", f"scale={width}:{height}:flags=area", "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
+    ]
+    raw = subprocess.run(cmd, check=True, capture_output=True).stdout
+    return np.frombuffer(raw, np.uint8).reshape(-1, height, width, 3)
+
+
 def load_gray_cached(path: str | Path, cache_dir: str | Path | None, width: int = 256) -> np.ndarray:
     if cache_dir is None:
         return decode_gray(path, width)

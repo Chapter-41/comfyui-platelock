@@ -30,6 +30,47 @@ def _align(gs, ps, w, motion_weight, stiffness, dup=None, gap=None):
     return align(c, gap=gap, transition=trans), gap
 
 
+def gate(al: Alignment, dup: np.ndarray, z_min: float) -> Alignment:
+    """Keep a change of offset only where the data clearly prefers it.
+
+    Each run of constant offset is compared with the offset in force before it,
+    over the run's own frames. Without clear evidence (z < z_min) the run keeps
+    the previous offset: frames are left as delivered instead of being edited
+    on a guess. The first run is kept as is, since a head offset has no
+    previous timing to fall back to.
+    """
+    if z_min <= 0 or len(al.pairs) < 2:
+        return al
+    c = al.cost
+    runs: list[list[tuple[int, int]]] = []
+    for g, p in al.pairs:
+        if runs and g - p == runs[-1][-1][0] - runs[-1][-1][1]:
+            runs[-1].append((g, p))
+        else:
+            runs.append([(g, p)])
+    offsets = [runs[0][0][0] - runs[0][0][1]]
+    for run in runs[1:]:
+        new = run[0][0] - run[0][1]
+        old = offsets[-1]
+        d = [c[p + old, p] - c[g, p] for g, p in run if 0 <= p + old < al.gen_frames]
+        z = np.mean(d) / (np.std(d) / np.sqrt(len(d)) + 1e-9) if len(d) >= 2 else 0.0
+        offsets.append(new if z >= z_min or len(d) < len(run) else old)
+
+    original = set(al.pairs)
+    pairs, last_g, prev_end = [], -1, runs[0][0][1] - 1
+    for run, off in zip(runs, offsets):
+        own = run[0][0] - run[0][1]
+        # A reverted run also takes back the plate frames skipped just before it.
+        start = prev_end + 1 if off != own else run[0][1]
+        for p in range(start, run[-1][1] + 1):
+            g = p + off
+            if g > last_g and 0 <= g < al.gen_frames and not (dup[g] and (g, p) not in original):
+                pairs.append((g, p))
+                last_g = g
+        prev_end = run[-1][1]
+    return Alignment(pairs=pairs, plate_frames=al.plate_frames, gen_frames=al.gen_frames, gap=al.gap, cost=al.cost)
+
+
 def analyze_arrays(
     gen: np.ndarray,
     plate: np.ndarray,
@@ -39,6 +80,7 @@ def analyze_arrays(
     mask: np.ndarray | None = None,
     auto_mask: bool = True,
     stiffness: float = 2.0,
+    min_evidence: float = 2.0,
 ) -> Result:
     """gen, plate: float32 grayscale stacks (frames, H, W) in [0, 1].
 
@@ -65,5 +107,6 @@ def analyze_arrays(
         if dup[g] and plate_hold[max(0, p - 1):p + 2].any():
             dup[g] = False
     al, _ = _align(gs, ps, w, motion_weight, stiffness, dup=dup, gap=gap)
+    al = gate(al, dup, min_evidence)
     ops = build_plan(al, dup, max_interp=max_interp)
     return Result(al, dup, ops, summarize(al, dup, ops), w)

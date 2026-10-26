@@ -1,20 +1,18 @@
-"""ComfyUI nodes. VIDEO nodes stream from disk; the IMAGE node is for short clips and interop."""
+"""ComfyUI nodes. Realign streams from video files; Realign (images) is for short IMAGE batches."""
 from __future__ import annotations
 
 import json
 import time
-import uuid
 from fractions import Fraction
 from pathlib import Path
 
-import cv2
 import numpy as np
 
+from .realign.compare import compare_video, realigned_frames, summary_image
 from .realign.core import analyze_arrays
 from .realign.plan import Op, plan_to_json
-from .realign.render import render, strip_chart
-from .realign.interp import interpolate
-from .realign.video import load_gray_cached, probe
+from .realign.render import render
+from .realign.video import decode_small_rgb, load_gray_cached, probe
 
 CATEGORY = "Realign"
 
@@ -25,7 +23,7 @@ def _video_path(video) -> str:
     except ImportError:  # pragma: no cover - outside ComfyUI
         VideoFromFile = ()
     if VideoFromFile and not isinstance(video, VideoFromFile):
-        raise ValueError("Realign needs a file-backed VIDEO (Load Video), not a decoded frame batch.")
+        raise ValueError("Realign needs a file-backed VIDEO (Load Video). For frame batches use Realign (images).")
     path = video.get_stream_source()
     start, duration = video.get_active_trim_window() if hasattr(video, "get_active_trim_window") else (0, 0)
     if start or duration > 0:
@@ -44,41 +42,36 @@ def _dirs() -> tuple[Path, Path]:
     return out / "realign", tmp / "realign_cache"
 
 
-def _to_image(bgr_or_gray: np.ndarray):
+def _image(rgb: np.ndarray):
     import torch
-    img = bgr_or_gray
-    if img.ndim == 2:
-        img = np.repeat(img[..., None], 3, axis=2)
-    else:
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    return torch.from_numpy(img.astype(np.float32) / 255.0)[None]
+    return torch.from_numpy(rgb.astype(np.float32) / 255.0)[None]
 
 
-def _chart_image(ops, dup) -> np.ndarray:
-    path = _dirs()[1] / f"chart_{uuid.uuid4().hex}.png"
-    strip_chart(ops, dup, path)
-    img = cv2.imread(str(path))
-    path.unlink(missing_ok=True)
-    return img
-
-
-def _mask_image(w: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
-    return (cv2.resize(np.clip(w, 0, 1), (shape[1], shape[0]), interpolation=cv2.INTER_NEAREST) * 255).astype(np.uint8)
-
-
-def _report_text(plan: dict) -> str:
-    s = plan["summary"]
-    lines = [
-        f"plate {s['plate_frames']} frames, generated {s['gen_frames']} frames",
-        f"offset median {s['offset_median']:+.0f}, range {s['offset_range']}" if s["offset_range"] else "no matched frames",
-        f"copied {s['copied']}, interpolated {len(s['interpolated'])}, missing {len(s['missing_plate_frames'])}",
-        f"duplicates in generated: {s['duplicates_in_gen'] or 'none'}",
-        f"dropped generated frames: {s['dropped_gen_frames'] or 'none'}",
-        "segments (plate range, offset, confidence z):",
-        *[f"  {g['plate'][0]}-{g['plate'][1]}  {g['offset']:+d}  {g['confidence']}" for g in s["segments"]],
-        "COMPLETE" if s["complete"] else "INCOMPLETE: plate frames without generated coverage are rendered black",
-    ]
+def _report(summary: dict) -> str:
+    s = summary
+    lines = [f"plate {s['plate_frames']} frames, generated {s['gen_frames']} frames -> output {s['plate_frames']} frames"]
+    if s["interpolated"]:
+        lines.append(f"filled {len(s['interpolated'])} frames the generator skipped or repeated: {s['interpolated']}")
+    if s["dropped_gen_frames"]:
+        lines.append(f"removed {len(s['dropped_gen_frames'])} extra generated frames: {s['dropped_gen_frames']}")
+    if s["missing_plate_frames"]:
+        lines.append(f"MISSING {len(s['missing_plate_frames'])} plate frames never generated (black): {s['missing_plate_frames']}")
+    if len(lines) == 1:
+        lines.append("already in sync, nothing changed")
     return "\n".join(lines)
+
+
+def _time_remap(ops: list[Op], gen_fps: Fraction) -> list[float | None]:
+    """Per plate frame, the generated-clip time in seconds (null where missing), for AE/Nuke time remapping."""
+    out = []
+    for o in ops:
+        if o.op == "copy":
+            out.append(round(float(o.gen / gen_fps), 6))
+        elif o.op == "interp":
+            out.append(round(float((o.gen + o.alpha * (o.gen_b - o.gen)) / gen_fps), 6))
+        else:
+            out.append(None)
+    return out
 
 
 def _mask_array(mask) -> np.ndarray | None:
@@ -88,116 +81,53 @@ def _mask_array(mask) -> np.ndarray | None:
     return m[0] if m.ndim == 3 else m
 
 
-_ANALYSIS_OPTIONS = {
-    "motion_weight": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 4.0, "step": 0.05,
-                                "tooltip": "Weight of frame-to-frame motion agreement vs. per-frame structure."}),
-    "stiffness": ("FLOAT", {"default": 2.0, "min": 0.25, "max": 8.0, "step": 0.25,
-                            "tooltip": "Higher: fewer retiming events. Lower: more sensitive to small drifts."}),
-    "max_interp": ("INT", {"default": 4, "min": 0, "max": 24,
-                           "tooltip": "Longest gap to fill by interpolation; longer gaps are reported missing."}),
-    "auto_mask": ("BOOLEAN", {"default": True,
-                              "tooltip": "Weight regions where the generation follows the plate (e.g. actors over a replaced background)."}),
-}
-
-
-class RealignAnalyze:
+class Realign:
     CATEGORY = CATEGORY
-    FUNCTION = "analyze"
-    RETURN_TYPES = ("REALIGN_PLAN", "STRING", "IMAGE", "IMAGE")
-    RETURN_NAMES = ("plan", "report", "chart", "agreement_mask")
-    DESCRIPTION = "Match every plate frame to the generated frame that shows it: offsets, drift, duplicates, skips, short or long clips."
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {"plate": ("VIDEO",), "generated": ("VIDEO",), **_ANALYSIS_OPTIONS},
-            "optional": {"mask": ("MASK", {"tooltip": "Plate-space weight (e.g. actor matte); replaces auto_mask."})},
-        }
-
-    def analyze(self, plate, generated, motion_weight, stiffness, max_interp, auto_mask, mask=None):
-        t0 = time.time()
-        plate_path, gen_path = _video_path(plate), _video_path(generated)
-        cache = _dirs()[1]
-        p = load_gray_cached(plate_path, cache)
-        g = load_gray_cached(gen_path, cache)
-        r = analyze_arrays(g, p, motion_weight=motion_weight, max_interp=max_interp,
-                           mask=_mask_array(mask), auto_mask=auto_mask, stiffness=stiffness)
-        plan = {
-            "version": 1,
-            "plate": probe(plate_path).to_dict(),
-            "gen": probe(gen_path).to_dict(),
-            "summary": r.summary,
-            "ops": plan_to_json(r.ops),
-            "seconds": round(time.time() - t0, 2),
-        }
-        return (plan, _report_text(plan), _to_image(_chart_image(r.ops, r.duplicates)),
-                _to_image(_mask_image(r.weights, p.shape[1:])))
-
-
-def _ops(plan: dict) -> list[Op]:
-    return [Op(**o) for o in plan["ops"]]
-
-
-class RealignRender:
-    CATEGORY = CATEGORY
-    FUNCTION = "render"
-    RETURN_TYPES = ("VIDEO", "STRING")
-    RETURN_NAMES = ("video", "path")
+    FUNCTION = "run"
+    RETURN_TYPES = ("VIDEO", "VIDEO", "IMAGE", "STRING")
+    RETURN_NAMES = ("realigned", "side_by_side", "preview", "report")
     OUTPUT_NODE = True
-    DESCRIPTION = "Write one output frame per plate frame: copy, interpolate (optical flow) or black for uncovered frames."
+    DESCRIPTION = ("Puts a generated video back on the plate's timing: one output frame per plate frame. "
+                   "Skipped or repeated frames are filled, extra frames removed, never-generated frames left black and reported.")
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "generated": ("VIDEO",),
-                "plan": ("REALIGN_PLAN",),
-                "fps": ("STRING", {"default": "plate",
-                                   "tooltip": "'plate' or a rate such as 25 or 24000/1001. Frames are unchanged; only the timebase."}),
-                "codec": (["prores", "h264"], {"default": "prores"}),
-                "filename_prefix": ("STRING", {"default": "realign"}),
-            }
+                "plate": ("VIDEO", {"tooltip": "The source plate the generation was made from."}),
+                "generated": ("VIDEO", {"tooltip": "The AI result, as delivered."}),
+                "output_fps": ("STRING", {"default": "plate",
+                                          "tooltip": "'plate', or e.g. 25. Only the timebase changes, never the frames."}),
+                "format": (["mp4", "prores"], {"default": "mp4"}),
+            },
+            "optional": {"mask": ("MASK", {"tooltip": "Optional: area to match on (e.g. the actors). By default this is found automatically."})},
         }
 
-    def render(self, generated, plan, fps, codec, filename_prefix):
+    def run(self, plate, generated, output_fps, format, mask=None):
         from comfy_api.input_impl import VideoFromFile
-        gen_path = _video_path(generated)
-        if probe(gen_path).frames != plan["gen"]["frames"]:
-            raise ValueError("Generated video does not match the analyzed plan.")
-        rate = Fraction(plan["plate"]["fps"]) if fps.strip() == "plate" else Fraction(fps.strip())
-        out = _dirs()[0] / f"{filename_prefix}_{time.strftime('%Y%m%d_%H%M%S')}.{'mov' if codec == 'prores' else 'mp4'}"
-        written = render(gen_path, _ops(plan), out, rate, codec)
-        out.with_suffix(".json").write_text(json.dumps({**plan, "output": {"path": str(out), "frames": written,
-                                                                            "fps": f"{rate.numerator}/{rate.denominator}"}}, indent=1))
-        return (VideoFromFile(str(out)), str(out))
+        plate_path, gen_path = _video_path(plate), _video_path(generated)
+        plate_info, gen_info = probe(plate_path), probe(gen_path)
+        out_dir, cache = _dirs()
+        r = analyze_arrays(load_gray_cached(gen_path, cache), load_gray_cached(plate_path, cache), mask=_mask_array(mask))
+        fps = plate_info.fps if output_fps.strip() in ("", "plate") else Fraction(output_fps.strip())
+
+        stem = f"{Path(gen_path).stem}_realign_{time.strftime('%Y%m%d_%H%M%S')}"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        clip = out_dir / f"{stem}.{'mov' if format == 'prores' else 'mp4'}"
+        render(gen_path, r.ops, clip, fps, "prores" if format == "prores" else "h264")
+        plate_rgb, gen_rgb = decode_small_rgb(plate_path, 480), decode_small_rgb(gen_path, 480)
+        side = out_dir / f"{stem}_side_by_side.mp4"
+        compare_video(plate_rgb, gen_rgb, r.ops, r.summary, side, fps)
+        (out_dir / f"{stem}.json").write_text(json.dumps({
+            "plate": plate_info.to_dict(), "generated": gen_info.to_dict(), "output": str(clip),
+            "summary": r.summary, "ops": plan_to_json(r.ops), "time_remap_seconds": _time_remap(r.ops, gen_info.fps),
+        }, indent=1))
+        preview = summary_image(plate_rgb, gen_rgb, r.ops, r.summary)
+        return (VideoFromFile(str(clip)), VideoFromFile(str(side)), _image(preview), _report(r.summary))
 
 
-class RealignTimeRemap:
-    CATEGORY = CATEGORY
-    FUNCTION = "export"
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("time_remap_json",)
-    DESCRIPTION = "Per plate frame, the generated-clip time to show (seconds); null where uncovered. For After Effects or Nuke time remapping."
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {"required": {"plan": ("REALIGN_PLAN",)}}
-
-    def export(self, plan):
-        gen_fps = Fraction(plan["gen"]["fps"])
-        keys = []
-        for o in _ops(plan):
-            if o.op == "copy":
-                t = o.gen / gen_fps
-            elif o.op == "interp":
-                t = (o.gen + o.alpha * (o.gen_b - o.gen)) / gen_fps
-            else:
-                t = None
-            keys.append({"plate_frame": o.plate, "gen_time": None if t is None else round(float(t), 6), "op": o.op})
-        return (json.dumps({"plate_fps": plan["plate"]["fps"], "gen_fps": plan["gen"]["fps"], "keys": keys}),)
-
-
-def _gray_batch(images) -> np.ndarray:
+def _gray(images) -> np.ndarray:
+    import cv2
     a = images.cpu().numpy()
     g = (a[..., 0] * 0.299 + a[..., 1] * 0.587 + a[..., 2] * 0.114).astype(np.float32)
     h = max(2, round(g.shape[1] * 256 / g.shape[2] / 2) * 2)
@@ -207,40 +137,23 @@ def _gray_batch(images) -> np.ndarray:
 class RealignImages:
     CATEGORY = CATEGORY
     FUNCTION = "run"
-    RETURN_TYPES = ("IMAGE", "STRING", "IMAGE")
-    RETURN_NAMES = ("images", "report", "chart")
-    DESCRIPTION = "IMAGE-batch version for short clips or chaining with other frame nodes. Prefer the VIDEO nodes for long or 4K clips."
+    RETURN_TYPES = ("IMAGE", "IMAGE", "STRING")
+    RETURN_NAMES = ("realigned", "preview", "report")
+    DESCRIPTION = "Same as Realign, for short IMAGE batches. Use Realign for long or 4K clips."
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {
-            "required": {"plate": ("IMAGE",), "generated": ("IMAGE",), **_ANALYSIS_OPTIONS},
-            "optional": {"mask": ("MASK",)},
-        }
+        return {"required": {"plate": ("IMAGE",), "generated": ("IMAGE",)}, "optional": {"mask": ("MASK",)}}
 
-    def run(self, plate, generated, motion_weight, stiffness, max_interp, auto_mask, mask=None):
+    def run(self, plate, generated, mask=None):
         import torch
-        r = analyze_arrays(_gray_batch(generated), _gray_batch(plate), motion_weight=motion_weight,
-                           max_interp=max_interp, mask=_mask_array(mask), auto_mask=auto_mask, stiffness=stiffness)
-        gen = generated.cpu().numpy()
-        out = []
-        for o in r.ops:
-            if o.op == "copy":
-                out.append(gen[o.gen])
-            elif o.op == "interp":
-                a = (gen[o.gen] * 255).astype(np.uint8)
-                b = (gen[o.gen_b] * 255).astype(np.uint8)
-                out.append(interpolate(a, b, o.alpha).astype(np.float32) / 255.0)
-            else:
-                out.append(np.zeros_like(gen[0]))
-        plan = {"summary": r.summary}
-        return (torch.from_numpy(np.stack(out)), _report_text(plan), _to_image(_chart_image(r.ops, r.duplicates)))
+        r = analyze_arrays(_gray(generated), _gray(plate), mask=_mask_array(mask))
+        gen8 = (generated.cpu().numpy() * 255).astype(np.uint8)
+        plate8 = (plate.cpu().numpy() * 255).astype(np.uint8)
+        frames = [f if f is not None else np.zeros_like(gen8[0]) for f in realigned_frames(gen8, r.ops)]
+        preview = summary_image(plate8, gen8, r.ops, r.summary)
+        return (torch.from_numpy(np.stack(frames).astype(np.float32) / 255.0), _image(preview), _report(r.summary))
 
 
-NODE_CLASS_MAPPINGS = {cls.__name__: cls for cls in (RealignAnalyze, RealignRender, RealignTimeRemap, RealignImages)}
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "RealignAnalyze": "Realign · Analyze (plate vs generated)",
-    "RealignRender": "Realign · Render to plate timing",
-    "RealignTimeRemap": "Realign · Time-remap JSON",
-    "RealignImages": "Realign · Images (short clips)",
-}
+NODE_CLASS_MAPPINGS = {"Realign": Realign, "RealignImages": RealignImages}
+NODE_DISPLAY_NAME_MAPPINGS = {"Realign": "Realign", "RealignImages": "Realign (images)"}
