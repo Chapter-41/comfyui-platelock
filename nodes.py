@@ -166,10 +166,11 @@ def _targets(fill: dict, frames_to_generate: str) -> list[int]:
 class PlateLockFillWindow:
     CATEGORY = CATEGORY
     FUNCTION = "run"
-    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE", "IMAGE", "PLATELOCK_WINDOW", "STRING")
-    RETURN_NAMES = ("control_video", "control_masks", "first_frame", "last_frame", "window", "status")
-    DESCRIPTION = ("Cuts one window around frames to generate. Wan VACE: control_video + control_masks into WanVaceToVideo "
-                   "(length = this window's length). LTX: first_frame / last_frame as guides. Queue once per window.")
+    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE", "IMAGE", "IMAGE", "INT", "INT", "INT", "PLATELOCK_WINDOW", "STRING")
+    RETURN_NAMES = ("control_video", "control_masks", "context_frames", "first_frame", "last_frame",
+                    "width", "height", "length", "window", "status")
+    DESCRIPTION = ("Cuts one window around a gap. LTX: context_frames as a guide at frame 0, width/height/length into the "
+                   "empty latent. Wan VACE: control_video + control_masks into WanVaceToVideo. Queue once per window.")
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -178,25 +179,30 @@ class PlateLockFillWindow:
                 "fill": ("PLATELOCK_FILL",),
                 "window": ("INT", {"default": 0, "min": 0, "max": 9999, "control_after_generate": "increment",
                                    "tooltip": "Which window to prepare; increments after each queue."}),
-                "length": ("INT", {"default": 81, "min": 9, "max": 1025, "step": 8,
-                                   "tooltip": "81 suits Wan (4n+1) and LTX (8n+1)."}),
+                "length": ("INT", {"default": 33, "min": 9, "max": 1025, "step": 8,
+                                   "tooltip": "Frames per window; 8n+1 suits both LTX and Wan (4n+1)."}),
+                "context": ("INT", {"default": 9, "min": 1, "max": 1024,
+                                    "tooltip": "Real frames before the gap the model continues from. For LTX use 8n+1 (9, 17)."}),
                 "frames_to_generate": (["missing", "missing and filled"], {"default": "missing",
                                        "tooltip": "'missing and filled' also regenerates frames that interpolation filled."}),
-                "max_width": ("INT", {"default": 1280, "min": 256, "max": 8192, "step": 16}),
+                "max_width": ("INT", {"default": 1280, "min": 256, "max": 8192, "step": 32}),
             }
         }
 
-    def run(self, fill, window, length, frames_to_generate, max_width):
+    def run(self, fill, window, length, context, frames_to_generate, max_width):
         import torch
-        from .platelock.genfill import control, read_range, windows
+        from .platelock.genfill import control, model_size, overlay_patches, read_range, windows
         targets = _targets(fill, frames_to_generate)
-        wins = windows(targets, fill["frames"], length)
+        wins = windows(targets, fill["frames"], length, context)
         if not wins:
             raise ValueError("Nothing to generate: every plate frame is covered.")
         if window >= len(wins):
             raise ValueError(f"Only {len(wins)} window(s); all done. Reset window to 0 to start over.")
         start, covered = wins[window]
-        frames = read_range(fill["clip"], start, min(length, fill["frames"] - start), max_width)
+        clip_info = probe(fill["clip"])
+        size = model_size(clip_info.width, clip_info.height, max_width)
+        frames = read_range(fill["clip"], start, min(length, fill["frames"] - start), size=size)
+        frames = overlay_patches(frames, start, fill["work"])
         local = [t - start for t in covered]
         video, mask = control(frames, local, length)
         before = max([i for i in range(len(frames)) if i not in local and i < min(local)], default=None)
@@ -207,7 +213,9 @@ class PlateLockFillWindow:
         status = (f"window {window + 1}/{len(wins)}: plate frames {start}-{start + length - 1}, "
                   f"generating {len(covered)} frame(s) {covered[0]}-{covered[-1]}")
         to_t = lambda a: torch.from_numpy(np.ascontiguousarray(a))
-        return (to_t(video), to_t(mask), _image(first), _image(last), info, status)
+        ctx = frames[:local[0]] if local[0] else frames[:1]
+        return (to_t(video), to_t(mask), to_t(ctx.astype(np.float32) / 255.0), _image(first), _image(last),
+                size[0], size[1], length, info, status)
 
 
 class PlateLockFillMerge:
@@ -231,10 +239,7 @@ class PlateLockFillMerge:
                              "(trim any reference frames first).")
         info = probe(window["clip"])
         count = min(window["length"], window["frames"] - window["start"])
-        actual = read_range(window["clip"], window["start"], count, max_width=gen.shape[2])
-        if actual.shape[1:3] != gen.shape[1:3]:
-            import cv2
-            gen = np.stack([cv2.resize(f, (actual.shape[2], actual.shape[1]), interpolation=cv2.INTER_AREA) for f in gen])
+        actual = read_range(window["clip"], window["start"], count, size=(gen.shape[2], gen.shape[1]))
         save_patches(window["work"], window["start"], gen, actual, window["targets"], (info.width, info.height))
         out = Path(window["clip"]).with_name(Path(window["clip"]).stem + "_generated" + Path(window["clip"]).suffix)
         render_patched(window["clip"], window["work"], out, Fraction(window["fps"]), window["codec"])
