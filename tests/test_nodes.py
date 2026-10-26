@@ -121,8 +121,12 @@ class NodesTest(unittest.TestCase):
         sidecar = json.loads(Path(fill["sidecar"]).read_text())
         self.assertEqual(len(sidecar["time_remap_seconds"]), 80)
         self.assertEqual(set(sidecar["summary"]["interpolated"]), {20, 50})
-        self.assertTrue(out["ui"]["platelock_viewer"][0]["final"])
-        self.assertEqual(set(m["PlateLockFillWindow"]().run(fill)), {None}, "no video model run unless 'generate'")
+        window = m["PlateLockFillWindow"]().run(fill)[9]
+        merge = m["PlateLockFillMerge"]()
+        self.assertEqual(merge.check_lazy_status(window), [], "no video model run unless 'generate'")
+        _, _, preview, merged_report = merge.run(window, None)["result"]
+        self.assertEqual(merged_report, report)
+        self.assertEqual(preview.shape[0], 1)
 
     def test_debug_mode_makes_no_frames(self):
         from platelock.video import probe
@@ -143,11 +147,11 @@ class NodesTest(unittest.TestCase):
         from platelock.video import decode_small_rgb
         m = self.pack.NODE_CLASS_MAPPINGS
         out = m["PlateLock"]().run(self.pv, self.sv, "plate", "mp4", "generate (LTX)")
-        self.assertFalse(out["ui"]["platelock_viewer"][0]["final"])
         clip, _, _, report, fill = out["result"]
         self.assertIn("MISSING 10", report)
         out = m["PlateLockFillWindow"]().run(fill)
         control, masks, context, first, last, width, height, length, fps, window, status = out
+        self.assertEqual(m["PlateLockFillMerge"]().check_lazy_status(window), ["images"])
         self.assertEqual(fps, 24.0)
         self.assertEqual((control.shape[0], length, width % 32, height % 32), (33, 33, 0, 0))
         self.assertEqual((window["start"], window["count"]), (53, 27))

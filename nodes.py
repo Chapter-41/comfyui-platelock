@@ -170,6 +170,8 @@ class PlateLock:
             "time_remap_seconds": _time_remap(r.ops, gen_info.fps),
         }, indent=1))
         preview = summary_image(plate_rgb, gen_rgb, r.ops, r.summary, fill=fill)
+        preview_png = out_dir / f"{stem}_preview.png"
+        _save_png(preview_png, preview)
         viewer = out_dir / f"{stem}_viewer"
         fill_state = {
             "clip": str(clip), "sidecar": str(sidecar), "work": str(out_dir / stem), "codec": codec,
@@ -181,9 +183,19 @@ class PlateLock:
         lines = [_report(r.summary)] + report_lines(exact)
         if debug and r.summary["interpolated"]:
             lines.insert(1, "debug: no frames were made; 'filled' frames hold the nearest generated frame")
-        final = not (fill_state["generate"] and fill_state["missing"])
+        fill_state.update(side=str(side), preview=str(preview_png), report="\n".join(lines))
         return _with_viewer(viewer, (VideoFromFile(str(clip)), VideoFromFile(str(side)), _image(preview),
-                                     "\n".join(lines), fill_state), final)
+                                     fill_state["report"], fill_state))
+
+
+def _save_png(path: Path, rgb: np.ndarray) -> None:
+    import cv2
+    cv2.imwrite(str(path), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+
+
+def _load_png(path: str) -> np.ndarray:
+    import cv2
+    return cv2.cvtColor(cv2.imread(path), cv2.COLOR_BGR2RGB)
 
 
 def _exactness(plate_rgb: np.ndarray, result_clip, ops: list[Op], generated: set[int], width: int):
@@ -201,8 +213,8 @@ def _export_viewer(folder: Path, plate, generated, result, ops, done: set[int], 
     }, sources=sources)
 
 
-def _with_viewer(folder: Path, result: tuple, final: bool = True) -> dict:
-    return {"ui": {"platelock_viewer": [{"subfolder": f"platelock/{folder.name}", "final": final}]}, "result": result}
+def _with_viewer(folder: Path, result: tuple) -> dict:
+    return {"ui": {"platelock_viewer": [{"subfolder": f"platelock/{folder.name}"}]}, "result": result}
 
 
 class PlateLockFillWindow:
@@ -213,8 +225,8 @@ class PlateLockFillWindow:
                     "width", "height", "length", "fps", "window", "status")
     DESCRIPTION = ("Picks the next missing gap and cuts a window around it, sized automatically. LTX: context_frames as a "
                    "guide at frame 0, width/height/length into the empty latent. Wan VACE: control_video + control_masks. "
-                   "Only runs when PlateLock's fill_frames is 'generate' and frames are missing; otherwise the model "
-                   "nodes are skipped. Fill Merge queues the workflow again until every gap is generated.")
+                   "The video model only runs when PlateLock's fill_frames is 'generate' and frames are missing. "
+                   "Fill Merge queues the workflow again until every gap is generated.")
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -228,7 +240,7 @@ class PlateLockFillWindow:
         import torch
         from .platelock.genfill import control, model_size, next_window, overlay_patches, patched_frames, read_range
         if not (fill.get("generate") and fill["missing"]):
-            return _blocked(len(self.RETURN_TYPES))
+            return self._nothing(fill)
         work = Path(fill["work"])
         remaining = sorted(set(fill["missing"]) - set(patched_frames(work)))
         if not remaining:
@@ -254,7 +266,7 @@ class PlateLockFillWindow:
 
     @staticmethod
     def _nothing(fill):
-        """Every gap is already generated: a tiny window so the model step is instant and Merge shows the result."""
+        """Nothing to generate: Merge then skips the model (its images input is lazy) and shows the result."""
         import torch
         frames = np.zeros((9, 64, 64, 3), np.float32)
         info = {**fill, "start": 0, "count": 0, "length": 9, "context": 1, "targets": [], "reverse": False}
@@ -262,15 +274,6 @@ class PlateLockFillWindow:
                 torch.from_numpy(frames[:1]), 64, 64, 9, float(Fraction(fill["fps"])), info, "nothing missing")
 
 
-
-
-def _blocked(n: int):
-    """Skip every node behind this one (the video model and Merge)."""
-    try:
-        from comfy_execution.graph import ExecutionBlocker
-    except ImportError:  # pragma: no cover - outside ComfyUI
-        return (None,) * n
-    return tuple(ExecutionBlocker(None) for _ in range(n))
 
 
 def _queue_again(prompt: dict, extra_pnginfo) -> None:
@@ -296,17 +299,26 @@ class PlateLockFillMerge:
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {"required": {"window": ("PLATELOCK_WINDOW",), "images": ("IMAGE", {"tooltip": "Decoded model output for this window."})},
+        return {"required": {"window": ("PLATELOCK_WINDOW",),
+                             "images": ("IMAGE", {"lazy": True, "tooltip": "Decoded model output for this window."})},
                 "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"}}
+
+    def check_lazy_status(self, window, images=None, **_):
+        return ["images"] if window["targets"] and images is None else []
 
     def run(self, window, images, prompt=None, extra_pnginfo=None):
         from comfy_api.input_impl import VideoFromFile
         from .platelock.genfill import patched_frames, read_range, render_patched, save_patches
         fps = Fraction(window["fps"])
         if not window["targets"]:
-            side_by_side, preview, report = _overview(window, Path(window["clip"]), set(), fps)
+            done = set(patched_frames(window["work"])) if window.get("generate") else set()
+            if not done:
+                return _with_viewer(Path(window["viewer"]), (VideoFromFile(window["clip"]), VideoFromFile(window["side"]),
+                                                             _image(_load_png(window["preview"])), window["report"]))
+            out = _generated_path(window)
+            side_by_side, preview, report = _overview(window, out, done, fps)
             return _with_viewer(Path(window["viewer"]),
-                                (VideoFromFile(window["clip"]), VideoFromFile(str(side_by_side)), _image(preview), report))
+                                (VideoFromFile(str(out)), VideoFromFile(str(side_by_side)), _image(preview), report))
         gen = (images.cpu().numpy() * 255.0).round().clip(0, 255).astype(np.uint8)
         start, count = window["start"], window["count"]
         if len(gen) < count:
@@ -317,7 +329,7 @@ class PlateLockFillMerge:
         actual = read_range(window["clip"], start, count, size=(gen.shape[2], gen.shape[1]))
         written = save_patches(window["work"], start, gen, actual, [t - start for t in window["targets"]],
                                (info.width, info.height))
-        out = Path(window["clip"]).with_name(Path(window["clip"]).stem + "_generated" + Path(window["clip"]).suffix)
+        out = _generated_path(window)
         render_patched(window["clip"], window["work"], out, fps, window["codec"])
         done = set(patched_frames(window["work"]))
         todo = [t for t in window["missing"] if t not in done]
@@ -328,6 +340,11 @@ class PlateLockFillMerge:
             report += f"\n{len(todo)} frame(s) left: running again automatically"
         return _with_viewer(Path(window["viewer"]),
                             (VideoFromFile(str(out)), VideoFromFile(str(side_by_side)), _image(preview), report))
+
+
+def _generated_path(window: dict) -> Path:
+    clip = Path(window["clip"])
+    return clip.with_name(clip.stem + "_generated" + clip.suffix)
 
 
 def _overview(window: dict, final_clip: Path, generated: set[int], fps: Fraction):

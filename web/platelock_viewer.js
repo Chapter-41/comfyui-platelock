@@ -342,7 +342,8 @@ app.registerExtension({
       onExecuted?.apply(this, arguments);
       const info = message?.platelock_viewer?.[0];
       if (!info) return;
-      if (info.final === false) {
+      const fillUsed = nodeData.name === "PlateLock" && this.outputs?.find((o) => o.name === "fill")?.links?.length;
+      if (fillUsed) {
         if (this.platelockViewer) this.platelockViewer.root.style.display = "none";
         return;
       }
