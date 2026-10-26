@@ -15,6 +15,11 @@ from dataclasses import dataclass, field
 import numpy as np
 
 MAX_STEP = 3
+# Unmatched frames at the clip ends cost slightly less than gaps inside the
+# clip. A generation that runs ahead or behind has extra or missing frames at
+# the tail; without this, the path is equally happy to "catch up" by dropping
+# frames near the end, which hides a missing tail behind plausible-looking frames.
+EDGE_FACTOR = 0.9
 
 
 @dataclass
@@ -58,11 +63,12 @@ def align(c: np.ndarray, gap: float | None = None, max_edge: int | None = None, 
     back_p = np.zeros((m, n), np.int16)
 
     # Start cell (g0, p0) leaves g0 gen frames and p0 plate frames unmatched.
+    edge = gap * EDGE_FACTOR
     p_idx = np.arange(n)
-    start_p = np.where(p_idx <= max_edge, gap * p_idx, inf)
+    start_p = np.where(p_idx <= max_edge, edge * p_idx, inf)
 
     for g in range(m):
-        best = np.where(g <= max_edge, gap * g + start_p, inf)  # start here
+        best = np.where(g <= max_edge, edge * g + start_p, inf)  # start here
         bg = np.zeros(n, np.int16)
         bp = np.zeros(n, np.int16)
         for dg in range(1, MAX_STEP + 1):
@@ -83,8 +89,8 @@ def align(c: np.ndarray, gap: float | None = None, max_edge: int | None = None, 
         back_p[g] = bp
 
     # End cell leaves the remaining frames on both sides unmatched.
-    tail_g = gap * (m - 1 - np.arange(m))[:, None]
-    tail_p = gap * (n - 1 - np.arange(n))[None, :]
+    tail_g = edge * (m - 1 - np.arange(m))[:, None]
+    tail_p = edge * (n - 1 - np.arange(n))[None, :]
     end = d + tail_g + tail_p
     g, p = np.unravel_index(int(np.argmin(end)), end.shape)
 

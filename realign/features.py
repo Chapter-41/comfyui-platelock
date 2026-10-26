@@ -45,8 +45,8 @@ def _sq(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return ((a - b) ** 2).reshape(len(a), -1).mean(axis=1)
 
 
-def detect_duplicates(frames: np.ndarray, ratio: float = 0.25, min_motion: float = 0.3,
-                      jump: float = 3.0, local: float = 0.75, window: int = 8) -> np.ndarray:
+def detect_duplicates(frames: np.ndarray, ratio: float = 0.15, min_motion: float = 0.3,
+                      jump: float = 2.0, local: float = 0.75, window: int = 8) -> np.ndarray:
     """Flag frames that repeat the previous one, robust to grain and AI shimmer.
 
     With previous/current/next frames, A = |cur-prev|^2, B = |next-cur|^2 and
