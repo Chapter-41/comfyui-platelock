@@ -75,12 +75,14 @@ def holds(frames: np.ndarray, local: float = 0.5, window: int = 8) -> np.ndarray
     a, _, _, local_a = _triangle(frames, window)
     out = np.zeros(len(frames), bool)
     if a is not None:
-        out[1:-1] = a < local * local_a
+        out[1:-1] = (a < local * local_a) | (a < 1e-9)
     return out
 
 
 def _triangle(frames: np.ndarray, window: int):
+    # Per-frame brightness and contrast normalised, so flicker is not mistaken for motion.
     th = np.stack([cv2.GaussianBlur(t, (0, 0), 1.0) for t in thumbnails(frames, (128, 72))])
+    th = (th - th.mean(axis=(1, 2), keepdims=True)) / (th.std(axis=(1, 2), keepdims=True) + 1e-3) * 0.2
     if len(th) < 3:
         return None, None, None, None
     a = _sq(th[1:-1], th[:-2])

@@ -63,6 +63,10 @@ def _report(summary: dict, generated=()) -> str:
     missing = [f for f in s["missing_plate_frames"] if f not in generated]
     if missing:
         lines.append(f"MISSING {len(missing)} plate frames never generated (black): {missing}")
+    if s.get("reframe"):
+        r = s["reframe"]
+        lines.append(f"matched through a reframe: the generator zoomed {100 * (r['zoom'] - 1):+.1f}% and shifted "
+                     f"{100 * r['shift_x']:+.1f}% / {100 * r['shift_y']:+.1f}% of the width (timing only, the frames are not changed)")
     if len(lines) == 1:
         lines.append("already in sync, nothing changed")
     return "\n".join(lines)

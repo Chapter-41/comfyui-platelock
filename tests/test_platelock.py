@@ -176,5 +176,39 @@ class BenchmarkJudgeTest(unittest.TestCase):
         self.assertEqual(r["errors"], {"wrong frame": [5], "skip not detected": [16]})
 
 
+class RobustnessTest(unittest.TestCase):
+    """Cases the ground-truth benchmark (platelock.benchmark) found."""
+
+    @staticmethod
+    def gray(frames):
+        return (frames.mean(axis=3) / 255.0).astype(np.float32)
+
+    def scene(self, name, n=120):
+        from platelock.benchmark import synthetic
+        return synthetic(name, n, size=(256, 144), seed=3)
+
+    def test_frozen_frames_are_not_dropped(self):
+        frames = self.gray(self.scene("static_then_pan"))
+        r = analyze_arrays(frames.copy(), frames)
+        self.assertEqual(r.summary["missing_plate_frames"], [])
+        self.assertTrue(all(o.op == "copy" for o in r.ops))
+
+    def test_reframed_generation_is_matched(self):
+        import cv2
+        from platelock.benchmark import restyle
+        src = self.scene("talking_head")
+        gen = restyle(src, "reframed", np.random.default_rng(0))[list(range(0, 60)) + list(range(61, 120))]
+        r = analyze_arrays(self.gray(gen), self.gray(src))
+        self.assertIn("reframe", r.summary)
+        self.assertAlmostEqual(r.summary["reframe"]["zoom"], 1.03, delta=0.01)
+        self.assertIn(60, r.summary["interpolated"])
+        self.assertLessEqual(len(r.summary["interpolated"]), 3)
+
+    def test_flicker_is_not_motion(self):
+        frames = self.gray(self.scene("flicker"))
+        r = analyze_arrays(frames.copy(), frames)
+        self.assertEqual(r.summary["interpolated"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

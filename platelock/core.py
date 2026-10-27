@@ -71,6 +71,65 @@ def gate(al: Alignment, dup: np.ndarray, z_min: float) -> Alignment:
     return Alignment(pairs=pairs, plate_frames=al.plate_frames, gen_frames=al.gen_frames, gap=al.gap, cost=al.cost)
 
 
+def _edges(f: np.ndarray) -> np.ndarray:
+    cv2 = features.cv2
+    g = cv2.GaussianBlur(f.astype(np.float32), (0, 0), 1.5)
+    return cv2.magnitude(cv2.Sobel(g, cv2.CV_32F, 1, 0), cv2.Sobel(g, cv2.CV_32F, 0, 1))
+
+
+def estimate_reframe(gen: np.ndarray, plate: np.ndarray, pairs: list[tuple[int, int]], weights: np.ndarray,
+                     samples: int = 12) -> np.ndarray | None:
+    """One zoom + shift for the whole clip, mapping gen pixels onto the plate (2x3, for WARP_INVERSE_MAP).
+
+    Fitted only where the gen follows the plate (weights, e.g. the actors; an invented background
+    would pull it off) and on frames where the plate barely moves, so a pairing that is a frame off
+    hardly biases it. None when the gen already sits on the plate or the fits disagree.
+    """
+    cv2 = features.cv2
+    if len(pairs) < 8:
+        return None
+    h, w = plate.shape[1] // 2, plate.shape[2] // 2
+    small = lambda f: _edges(cv2.resize(f, (w, h), interpolation=cv2.INTER_AREA))
+    mask = (cv2.resize(weights, (w, h)) > 0.15).astype(np.uint8)
+    if mask.mean() < 0.02:
+        return None
+    motion = features.frame_deltas(plate)
+    chosen = sorted(pairs, key=lambda gp: motion[gp[1]])[:max(samples * 3, len(pairs) // 3)]
+    chosen = sorted(chosen, key=lambda gp: gp[1])[::max(1, len(chosen) // samples)][:samples]
+    criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 40, 1e-5)
+    found = []
+    for g, p in chosen:
+        m = np.eye(2, 3, dtype=np.float32)
+        try:
+            _, m = cv2.findTransformECC(small(plate[p]), small(gen[g]), m, cv2.MOTION_AFFINE, criteria, mask, 5)
+        except cv2.error:
+            continue
+        found.append(m)
+    if len(found) < samples // 2:
+        return None
+    found = np.stack(found)
+    zooms = np.sqrt(np.abs(np.linalg.det(found[:, :, :2])))
+    shifts = found[:, :, 2]
+    zoom, shift = float(np.median(zooms)), np.median(shifts, axis=0)
+    if np.median(np.abs(shifts - shift)) > 1.0 or np.median(np.abs(zooms - zoom)) > 0.015:
+        return None
+    m = np.float32([[zoom, 0, 2 * shift[0]], [0, zoom, 2 * shift[1]]])
+    if abs(zoom - 1) < 0.004 and np.hypot(*m[:, 2]) < 0.5:
+        return None
+    return m
+
+
+def _match_cost(r: "Result") -> float:
+    return float(np.mean([r.alignment.cost[g, p] for g, p in r.alignment.pairs])) if r.alignment.pairs else 1.0
+
+
+def _warp(frames: np.ndarray, m: np.ndarray) -> np.ndarray:
+    cv2 = features.cv2
+    h, w = frames.shape[1:3]
+    return np.stack([cv2.warpAffine(f, m, (w, h), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP,
+                                    borderMode=cv2.BORDER_REFLECT) for f in frames])
+
+
 def analyze_arrays(
     gen: np.ndarray,
     plate: np.ndarray,
@@ -81,12 +140,35 @@ def analyze_arrays(
     auto_mask: bool = True,
     stiffness: float = 2.0,
     min_evidence: float = 2.0,
+    reframe: bool = True,
 ) -> Result:
     """gen, plate: float32 grayscale stacks (frames, H, W) in [0, 1].
 
     mask: optional (H, W) weight in plate space, e.g. an actor matte; it
     replaces the automatic plate-agreement weighting.
+    reframe: undo a zoom or shift the generator applied to the whole shot before matching;
+    otherwise a reframed frame can look more like a neighbouring plate frame than its own.
     """
+    kw = dict(thumb=thumb, motion_weight=motion_weight, max_interp=max_interp, mask=mask, auto_mask=auto_mask,
+              stiffness=stiffness, min_evidence=min_evidence)
+    if gen.shape[1:] != plate.shape[1:]:
+        gen = np.stack([features.cv2.resize(f, plate.shape[1:][::-1], interpolation=features.cv2.INTER_AREA) for f in gen])
+    r = analyze_arrays(gen, plate, reframe=False, **kw) if reframe else None
+    if r is None:
+        return _analyze(gen, plate, **kw)
+    m = estimate_reframe(gen, plate, r.alignment.pairs, r.weights)
+    if m is None:
+        return r
+    warped = _analyze(_warp(gen, m), plate, **kw)
+    if _match_cost(warped) > 1.05 * _match_cost(r):
+        return r
+    w = plate.shape[2]
+    warped.summary["reframe"] = {"zoom": round(float(np.sqrt(abs(np.linalg.det(m[:, :2])))), 4),
+                                 "shift_x": round(float(m[0, 2]) / w, 5), "shift_y": round(float(m[1, 2]) / w, 5)}
+    return warped
+
+
+def _analyze(gen, plate, thumb, motion_weight, max_interp, mask, auto_mask, stiffness, min_evidence) -> Result:
     gs, ps = features.structure_maps(gen, thumb), features.structure_maps(plate, thumb)
     if mask is not None:
         w = np.clip(features.cv2.resize(mask.astype(np.float32), thumb, interpolation=features.cv2.INTER_AREA), 0, 1)
