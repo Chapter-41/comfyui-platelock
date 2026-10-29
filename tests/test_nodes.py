@@ -103,7 +103,7 @@ class NodesTest(unittest.TestCase):
     def test_platelock_video(self):
         from platelock.video import probe
         m = self.pack.NODE_CLASS_MAPPINGS
-        self.assertEqual(sorted(m), ["PlateLock", "PlateLockFillMerge", "PlateLockFillWindow", "PlateLockImages"])
+        self.assertEqual(sorted(m), ["PlateLock", "PlateLockExport", "PlateLockFillMerge", "PlateLockFillWindow", "PlateLockImages", "PlateLockStudio"])
         for cls in m.values():
             cls.INPUT_TYPES()
         out = m["PlateLock"]().run(self.pv, self.gv, "25", "mp4")
@@ -128,6 +128,112 @@ class NodesTest(unittest.TestCase):
         self.assertEqual(merged_report, report)
         self.assertEqual(preview.shape[0], 1)
 
+    def test_analysis_does_not_render_or_fill(self):
+        from unittest.mock import patch
+        module = sys.modules["comfyui_platelock.nodes"]
+        with patch.object(module, "render", side_effect=AssertionError("analysis rendered")), \
+             patch.object(module, "model_fill", side_effect=AssertionError("analysis interpolated")):
+            out = self.pack.NODE_CLASS_MAPPINGS["PlateLock"]().run(self.pv, self.gv, "plate", "mp4", "Analyse only")
+        clip, side, _, report, state = out["result"]
+        self.assertEqual(clip.get_stream_source(), self.gv.path)
+        self.assertEqual(side.get_stream_source(), self.gv.path)
+        manifest = json.loads((Path(state["viewer"]) / "manifest.json").read_text())
+        self.assertTrue(manifest["analysis_only"])
+        self.assertEqual(manifest["counts"]["l"], 0)
+        self.assertEqual(len(manifest["drift"]), 80)
+        for i in (20, 50):
+            self.assertIsNone(manifest["drift"][i])
+        self.assertIn("no frames repaired", report)
+        with self.assertRaisesRegex(ValueError, "Analyse only"):
+            self.pack.NODE_CLASS_MAPPINGS["PlateLockFillWindow"]().run(state)
+
+    def test_explicit_rife_requires_model(self):
+        with self.assertRaisesRegex(ValueError, "Connect Load"):
+            self.pack.NODE_CLASS_MAPPINGS["PlateLock"]().run(self.pv, self.gv, "plate", "mp4", "Repair timing · RIFE")
+
+    def test_studio_analysis_has_no_video_and_export_rejects_it(self):
+        m = self.pack.NODE_CLASS_MAPPINGS
+        result = m["PlateLockStudio"]().run(self.pv, self.gv)
+        review, fill, locked, comparison = result["result"]
+        self.assertIsNone(review["video"])
+        self.assertEqual(m["PlateLockStudio"].RETURN_TYPES, ("PLATELOCK_RESULT", "PLATELOCK_FILL", "VIDEO", "VIDEO"))
+        self.assertTrue(fill["analysis_only"])
+        with self.assertRaisesRegex(ValueError, "Analysis has no repaired video"):
+            m["PlateLockExport"]().run(review)
+
+    def test_framing_only_preserves_extra_frames_without_retiming(self):
+        from platelock.demo import examples
+        from platelock.video import FrameWriter, probe
+        from unittest.mock import patch
+        spatial = sys.modules.get('comfyui_platelock.platelock.spatial')
+        if spatial is None:
+            import importlib
+            spatial = importlib.import_module('comfyui_platelock.platelock.spatial')
+        plate, cases, _ = examples()
+        ai = np.concatenate([cases['framing'], cases['framing'][-2:]])
+        folder = Path(self.tmp.name) / 'framing_only'; folder.mkdir(exist_ok=True)
+        for name, frames in [('plate',plate),('ai',ai)]:
+            writer = FrameWriter(folder/f'{name}.mp4',320,180,24,'h264')
+            for frame in frames: writer.write(frame)
+            writer.close()
+        # This deliberately contains an unsafe timing plan. It must not drive
+        # the frame-preserving spatial operation, nor be reported as repaired.
+        unsafe = {'summary': {'interpolated':[20], 'missing_plate_frames':[59],
+                             'segments':[{'confidence':-2}]}}
+        with patch('comfyui_platelock.platelock.render.Filler.frame',
+                   side_effect=AssertionError('framing-only interpolated')):
+            video, _, _, state = spatial.framing_only(
+                str(folder/'plate.mp4'),str(folder/'ai.mp4'),folder/'out',unsafe)
+        info = probe(video.get_stream_source())
+        self.assertEqual((info.frames,info.fps),(len(ai),24))
+        manifest = json.loads((Path(state['viewer'])/'manifest.json').read_text())
+        self.assertTrue(manifest['timing_preserved'])
+        self.assertEqual(manifest['timing_analysis'],unsafe['summary'])
+        self.assertTrue(all(o['op']=='copy' and o['gen']==o['plate'] for o in manifest['ops']))
+        self.assertLess(manifest['framing']['rendered_error_px'],1)
+        # An unsupported timebase cannot quietly retime the generated video.
+        pi,gi=probe(folder/'plate.mp4'),probe(folder/'ai.mp4')
+        from dataclasses import replace
+        with patch.object(spatial,'probe',side_effect=[pi,replace(gi,fps=25)]), \
+             self.assertRaisesRegex(ValueError,'matching input frame rates'):
+            spatial.framing_only(str(folder/'plate.mp4'),str(folder/'ai.mp4'),folder/'out',unsafe)
+
+    def test_studio_repair_exports_and_pending_ltx_cannot(self):
+        m = self.pack.NODE_CLASS_MAPPINGS
+        review, _, locked, comparison = m["PlateLockStudio"]().run(self.pv, self.gv, "Repair", "RIFE", object(), allow_ambiguous_timing=True)["result"]
+        video, = m["PlateLockExport"]().run(review)
+        self.assertTrue(Path(video.get_stream_source()).is_file())
+        manifest=json.loads((Path(review["viewer"])/"manifest.json").read_text())
+        self.assertEqual(set(manifest["summary"]["interpolated"]), {20,50})
+        with self.assertRaisesRegex(ValueError, "LTX footage is still missing"):
+            m["PlateLockExport"]().run({**review, "pending_ltx": True})
+
+    def test_studio_blocks_weak_candidate_edits_before_loading_models(self):
+        from unittest.mock import patch
+        module = sys.modules["comfyui_platelock.nodes"]
+        analysis = module.PlateLock().run(self.pv,self.gv,"plate","mp4","Analyse only")
+        analysis["result"][4]["summary"]["segments"][0]["confidence"] = 1.9
+        with patch.object(module.PlateLock,"run",return_value=analysis), \
+             patch("comfyui_platelock.platelock.backends.load_rife",side_effect=AssertionError("model loaded")):
+            with self.assertRaisesRegex(ValueError,"weak sequence evidence"):
+                module.PlateLockStudio().run(self.pv,self.gv,"Repair")
+
+    def test_constant_shift_repair_reduces_measured_displacement(self):
+        import cv2
+        shifted = np.stack([cv2.warpAffine(f,np.float32([[1,0,5],[0,1,-3]]),(256,144),
+                                         borderMode=cv2.BORDER_REFLECT) for f in self.plate])
+        path=Path(self.tmp.name)/"shifted.mp4"
+        write_video(path,shifted,"24")
+        out=self.pack.NODE_CLASS_MAPPINGS["PlateLockStudio"]().run(
+            self.pv,VideoFromFile(str(path)),"Repair","None",position="Correct constant shift",
+            allow_ambiguous_timing=True)
+        review=out["result"][0]
+        manifest=json.loads((Path(review["viewer"])/"manifest.json").read_text())
+        before=np.median([d["shift"] for d in manifest["before_drift"] if d and d["shift"] is not None])
+        self.assertGreater(before,4)
+        self.assertLess(manifest["exactness"]["median_shift_px"],1)
+        self.assertIn("Exposed borders are black",review["report"])
+
     def test_debug_mode_makes_no_frames(self):
         from platelock.video import probe
         m = self.pack.NODE_CLASS_MAPPINGS
@@ -138,7 +244,7 @@ class NodesTest(unittest.TestCase):
     def test_interpolation_model_fills_each_gap_once(self):
         self.FrameInterpolate.calls.clear()
         m = self.pack.NODE_CLASS_MAPPINGS
-        _, _, _, report, _ = m["PlateLock"]().run(self.pv, self.gv, "plate", "mp4", interp_model=object())["result"]
+        _, _, _, report, _ = m["PlateLock"]().run(self.pv, self.gv, "plate", "mp4", "Repair timing · RIFE", interp_model=object())["result"]
         self.assertIn("filled 2", report)
         self.assertTrue(self.FrameInterpolate.calls)
         self.assertEqual(set(self.FrameInterpolate.calls), {2})
@@ -146,7 +252,7 @@ class NodesTest(unittest.TestCase):
     def test_generative_fill_of_missing_tail(self):
         from platelock.video import decode_small_rgb
         m = self.pack.NODE_CLASS_MAPPINGS
-        out = m["PlateLock"]().run(self.pv, self.sv, "plate", "mp4", "generate (LTX)")
+        out = m["PlateLock"]().run(self.pv, self.sv, "plate", "mp4", "Repair timing + missing footage · LTX", interp_model=object())
         clip, _, _, report, fill = out["result"]
         self.assertIn("MISSING 10", report)
         out = m["PlateLockFillWindow"]().run(fill)

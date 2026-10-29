@@ -34,7 +34,8 @@ def export(folder: Path, plate: str | Path, generated: str | Path, result: str |
     if sources or not (folder / "p").is_dir():
         extract(plate, folder / "p")
         extract(generated, folder / "g")
-    extract(result, folder / "l")
+    if result is not None:
+        extract(result, folder / "l")
     manifest = {**manifest, "version": int(time.time() * 1000),
                 "counts": {k: len(list((folder / k).glob("*.jpg"))) for k in ("p", "g", "l")}}
     (folder / "manifest.json").write_text(json.dumps(manifest))

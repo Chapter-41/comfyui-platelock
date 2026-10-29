@@ -14,9 +14,11 @@ from .platelock.drift import measure, report_lines, summary as drift_summary
 from .platelock.plan import Op, plan_to_json
 from .platelock.render import render
 from .platelock.video import decode_small_rgb, load_gray_cached, probe
+from .platelock.tasks import TASKS
 
 CATEGORY = "PlateLock"
-FILL_MODES = ["interpolate (RIFE)", "generate (LTX)", "none (debug)"]
+FILL_MODES = ["interpolate (RIFE)", "generate (LTX)", "none (debug)",
+              "Analyse only", "Repair timing · RIFE", "Repair timing + missing footage · LTX"]
 _continue = [0]
 
 
@@ -101,6 +103,8 @@ def model_fill(interp_model):
     """Fill gaps with a native ComfyUI frame interpolation model (RIFE or FILM from Load Frame Interpolation Model)."""
     import torch
     from comfy_extras.nodes_frame_interpolation import FrameInterpolate
+    from .platelock.backends import compatible_interpolator
+    interp_model = compatible_interpolator(interp_model)
 
     def fill(a: np.ndarray, b: np.ndarray, alphas: list[float]) -> list[np.ndarray]:
         k = len(alphas)
@@ -121,7 +125,7 @@ class PlateLock:
     CATEGORY = CATEGORY
     FUNCTION = "run"
     RETURN_TYPES = ("VIDEO", "VIDEO", "IMAGE", "STRING", "PLATELOCK_FILL")
-    RETURN_NAMES = ("locked", "side_by_side", "preview", "report", "fill")
+    RETURN_NAMES = ("output", "side_by_side", "preview", "report", "fill")
     OUTPUT_NODE = True
     DESCRIPTION = ("Puts a generated video back on the plate's timing: one output frame per plate frame. "
                    "Skipped or repeated frames are filled, extra frames removed, never-generated frames left black and reported.")
@@ -135,8 +139,9 @@ class PlateLock:
                 "output_fps": ("STRING", {"default": "plate",
                                           "tooltip": "'plate', or e.g. 25. Only the timebase changes, never the frames."}),
                 "format": (["mp4", "prores"], {"default": "mp4"}),
-                "fill_frames": (FILL_MODES, {"default": FILL_MODES[0], "tooltip":
-                    "interpolate: RIFE makes the frames the generator skipped or repeated. "
+                "fill_frames": (FILL_MODES, {"default": "Analyse only", "tooltip":
+                    "Analyse only: inspect without rendering repairs; video outputs pass through the original. "
+                    "Repair timing: RIFE makes the frames the generator skipped or repeated. "
                     "generate: also has the video model (LTX) make frames that were never generated; needs the Fill nodes. "
                     "none: debug, no new frames: skipped frames hold the nearest generated frame, missing ones stay black."}),
             },
@@ -153,6 +158,12 @@ class PlateLock:
         plate_info, gen_info = probe(plate_path), probe(gen_path)
         out_dir, cache = _dirs()
         r = analyze_arrays(load_gray_cached(gen_path, cache), load_gray_cached(plate_path, cache), mask=_mask_array(mask))
+        if fill_frames == "Analyse only":
+            return self._analyse(plate_path, gen_path, plate_info, gen_info, r, out_dir, mask)
+        if fill_frames in ("Repair timing · RIFE", "Repair timing + missing footage · LTX"):
+            if interp_model is None:
+                raise ValueError("Connect Load Frame Interpolation Model (RIFE). Legacy modes allow optical flow; explicit RIFE repair requires a model.")
+            fill_frames = FILL_MODES[1] if fill_frames.endswith("LTX") else FILL_MODES[0]
         fps = plate_info.fps if output_fps.strip() in ("", "plate") else Fraction(output_fps.strip())
         debug = fill_frames.startswith("none")
         fill = hold_fill if debug else model_fill(interp_model) if interp_model is not None else None
@@ -164,8 +175,10 @@ class PlateLock:
         render(gen_path, r.ops, clip, fps, codec, fill=fill)
         plate_rgb, gen_rgb = decode_small_rgb(plate_path, 480), decode_small_rgb(gen_path, 480)
         side = out_dir / f"{stem}_side_by_side.mp4"
-        compare_video(plate_rgb, gen_rgb, r.ops, r.summary, side, fps, fill=fill)
-        drift, exact = _exactness(plate_rgb, clip, r.ops, set(), plate_info.width)
+        final_rgb = decode_small_rgb(str(clip), 480)
+        compare_video(plate_rgb, gen_rgb, r.ops, r.summary, side, fps, final=final_rgb)
+        drift = measure(plate_rgb, final_rgb, [o.op != "missing" for o in r.ops], plate_info.width, _mask_array(mask))
+        exact = drift_summary(drift)
         sidecar = out_dir / f"{stem}.json"
         sidecar.write_text(json.dumps({
             "plate": plate_info.to_dict(), "generated": gen_info.to_dict(), "output": str(clip),
@@ -173,7 +186,7 @@ class PlateLock:
             "summary": r.summary, "exactness": exact, "ops": plan_to_json(r.ops),
             "time_remap_seconds": _time_remap(r.ops, gen_info.fps),
         }, indent=1))
-        preview = summary_image(plate_rgb, gen_rgb, r.ops, r.summary, fill=fill)
+        preview = summary_image(plate_rgb, gen_rgb, r.ops, r.summary, final=final_rgb)
         preview_png = out_dir / f"{stem}_preview.png"
         _save_png(preview_png, preview)
         viewer = out_dir / f"{stem}_viewer"
@@ -183,13 +196,48 @@ class PlateLock:
             "generate": fill_frames.startswith("generate"),
             "missing": r.summary["missing_plate_frames"], "filled": r.summary["interpolated"],
         }
-        _export_viewer(viewer, plate_path, gen_path, clip, r.ops, set(), drift, exact, fps, "LOCKED")
+        _export_viewer(viewer, plate_path, gen_path, clip, r.ops, set(), drift, exact, fps, "OUTPUT")
         lines = [_report(r.summary)] + report_lines(exact)
         if debug and r.summary["interpolated"]:
             lines.insert(1, "debug: no frames were made; 'filled' frames hold the nearest generated frame")
         fill_state.update(side=str(side), preview=str(preview_png), report="\n".join(lines))
         return _with_viewer(viewer, (VideoFromFile(str(clip)), VideoFromFile(str(side)), _image(preview),
                                      fill_state["report"], fill_state))
+
+
+    def _analyse(self, plate_path, gen_path, plate_info, gen_info, r, out_dir, mask=None):
+        """Inspect matched originals without rendering, interpolation or generation."""
+        from comfy_api.input_impl import VideoFromFile
+        from .platelock.viewer import export
+        plate_rgb, gen_rgb = decode_small_rgb(plate_path, 480), decode_small_rgb(gen_path, 480)
+        valid = [o.op == "copy" for o in r.ops]
+        matched = np.stack([gen_rgb[o.gen] if ok else np.zeros_like(gen_rgb[0])
+                            for o, ok in zip(r.ops, valid)])
+        drift = measure(plate_rgb, matched, valid, plate_info.width, _mask_array(mask))
+        exact = drift_summary(drift)
+        folder = out_dir / f"{Path(gen_path).stem}_analysis_{time.time_ns()}"
+        export(folder, plate_path, gen_path, None, {
+            "name": Path(gen_path).stem, "fps": str(plate_info.fps), "label": "MATCHED ORIGINAL",
+            "analysis_only": True, "ops": plan_to_json(r.ops), "generated": [],
+            "drift": drift, "exactness": exact, "summary": r.summary,
+            "timebase": {"plate_fps": str(plate_info.fps), "ai_fps": str(gen_info.fps),
+                         "plate_seconds": float(plate_info.frames/plate_info.fps),
+                         "ai_seconds": float(gen_info.frames/gen_info.fps),
+                         "different": plate_info.fps != gen_info.fps,
+                         "interpretation": "Frame correspondence; original timebases preserved. Repair uses plate fps."},
+        })
+        report = "\n".join([
+            "ANALYSIS ONLY — no frames repaired. Both VIDEO outputs pass through the original generation.",
+            f"{len(r.ops)} plate frames; {gen_info.frames} generated frames.",
+            f"Proposed interpolation: {len(r.summary['interpolated'])} frames; "
+            f"missing footage: {len(r.summary['missing_plate_frames'])} frames; "
+            f"extra generated frames: {len(r.summary['dropped_gen_frames'])}.",
+            *report_lines(exact),
+            "Position is measured on matched originals. A steady pan can make timing and translation ambiguous.",
+        ])
+        state = {"analysis_only": True, "viewer": str(folder), "generate": False, "summary": r.summary}
+        original = VideoFromFile(gen_path)
+        return _with_viewer(folder, (original, original, _image(plate_rgb[0]), report, state))
 
 
 def _save_png(path: Path, rgb: np.ndarray) -> None:
@@ -241,6 +289,8 @@ class PlateLockFillWindow:
         return _continue[0]
 
     def run(self, fill):
+        if fill.get("analysis_only"):
+            raise ValueError("Analyse only has no repair output. Select Repair timing + missing footage · LTX before using Fill Window.")
         import torch
         from .platelock.genfill import control, model_size, next_window, overlay_patches, patched_frames, read_range
         if not (fill.get("generate") and fill["missing"]):
@@ -296,7 +346,7 @@ class PlateLockFillMerge:
     CATEGORY = CATEGORY
     FUNCTION = "run"
     RETURN_TYPES = ("VIDEO", "VIDEO", "IMAGE", "STRING")
-    RETURN_NAMES = ("locked", "side_by_side", "preview", "report")
+    RETURN_NAMES = ("output", "side_by_side", "preview", "report")
     OUTPUT_NODE = True
     DESCRIPTION = ("Takes the model's frames for this window, keeps only the missing ones (colour-matched), re-renders the "
                    "clip and shows what changed, like PlateLock. Runs the workflow again until no gap is left.")
@@ -379,7 +429,7 @@ class PlateLockImages:
     CATEGORY = CATEGORY
     FUNCTION = "run"
     RETURN_TYPES = ("IMAGE", "IMAGE", "STRING")
-    RETURN_NAMES = ("locked", "preview", "report")
+    RETURN_NAMES = ("output", "preview", "report")
     DESCRIPTION = "Same as PlateLock, for short IMAGE batches. Use PlateLock for long or 4K clips."
 
     @classmethod
@@ -396,8 +446,136 @@ class PlateLockImages:
         return (torch.from_numpy(np.stack(frames).astype(np.float32) / 255.0), _image(preview), _report(r.summary))
 
 
-NODE_CLASS_MAPPINGS = {"PlateLock": PlateLock, "PlateLockImages": PlateLockImages,
+
+class PlateLockStudio:
+    CATEGORY = CATEGORY
+    FUNCTION = "run"
+    OUTPUT_NODE = True
+    # Preserve old slots 0/1 so existing workflows still connect correctly.
+    RETURN_TYPES = ("PLATELOCK_RESULT", "PLATELOCK_FILL", "VIDEO", "VIDEO")
+    RETURN_NAMES = ("review", "advanced_fill", "output", "comparison_3up")
+    DESCRIPTION = "Compare plate and AI video, get a shot verdict, then choose a repair task. LTX reconstruction is experimental. Video outputs run only in Repair mode."
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "plate": ("VIDEO",), "generated": ("VIDEO",),
+            "mode": (["Analyse", "Repair"], {"default": "Analyse"}),
+            "method": (["RIFE", "LTX", "None"], {"default": "RIFE", "tooltip": "Advanced settings only. RIFE fills short bounded gaps. LTX reconstruction is experimental and requires installed checkpoints."}),
+        }, "optional": {
+            "interp_model": ("INTERP_MODEL",), "mask": ("MASK", {"tooltip": "Area that should match the plate. Used for timing and position measurements."}),
+            "format": (["mp4", "prores"], {"default": "mp4"}),
+            "position": (["Measure only", "Correct constant shift", "Correct framing (scale + position)"], {"default": "Measure only"}),
+            "allow_ambiguous_timing": ("BOOLEAN", {"default": False, "tooltip": "Allow candidate timing edits with weak sequence evidence. Inspect analysis before enabling."}),
+            "ltx_prompt": ("STRING", {"default": "Continue the same shot with consistent subjects, camera and lighting.", "multiline": True}),
+            "repair_task": (list(TASKS), {"default": "Advanced settings", "tooltip": "Choose what to fix. Presets select the backend automatically. Advanced settings preserves older workflows."}),
+        }}
+
+    def run(self, plate, generated, mode="Analyse", method="RIFE", interp_model=None, mask=None,
+            format="mp4", position="Measure only", allow_ambiguous_timing=False,
+            ltx_prompt="Continue the same shot with consistent subjects, camera and lighting.", repair_task="Advanced settings"):
+        from .platelock.backends import load_rife, LocalLTX
+        from .platelock.tasks import resolve_task, require_framing_only_plan
+        method, position = resolve_task(repair_task, method, position)
+        if mode not in ("Analyse", "Repair") or method not in ("RIFE", "LTX", "None"):
+            raise ValueError("Choose Analyse or Repair, with None, RIFE or LTX.")
+        analysis = PlateLock().run(plate, generated, "plate", format, "Analyse only", mask=mask)
+        _, _, _, report, state = analysis["result"]
+        manifest = json.loads((Path(state["viewer"])/"manifest.json").read_text())
+        if mode == "Analyse":
+            from .platelock.framing import analyse_framing
+            from .platelock.video import decode_small_rgb
+            from .platelock.plan import Op
+            source = {"plate": probe(_video_path(plate)).to_dict(), "generated": {"path": _video_path(generated)}, "ops": manifest["ops"]}
+            roi = (mask.cpu().numpy()[0] if mask.ndim == 3 else mask.cpu().numpy()) if mask is not None else None
+            try:
+                manifest["framing"] = analyse_framing(
+                    decode_small_rgb(source["plate"]["path"], 640),
+                    decode_small_rgb(source["generated"]["path"], 640),
+                    [Op(**o) for o in source["ops"]], source["plate"]["width"], roi)
+            except ValueError as exc:
+                manifest["framing"] = {"motion": {"state": "unknown", "headline": "Framing could not be measured reliably", "action": str(exc)}}
+            (Path(state["viewer"])/"manifest.json").write_text(json.dumps(manifest))
+            review = {"mode":mode,"method":method,"report":report,"video":None,"viewer":state["viewer"]}
+            try:
+                from comfy_execution.graph import ExecutionBlocker
+                empty = ExecutionBlocker(None)
+            except ImportError:
+                empty = None
+            return {"ui":analysis["ui"],"result":(review,state,empty,empty)}
+        summary = state["summary"]
+        if repair_task == "Correct framing":
+            from .platelock.spatial import framing_only
+            video, side, report, fill = framing_only(
+                _video_path(plate), _video_path(generated), _dirs()[0], manifest,
+                "prores" if format == "prores" else "h264", mask)
+            review = {"mode": mode, "method": "None", "report": report,
+                      "video": video, "comparison": side, "viewer": fill["viewer"]}
+            return _with_viewer(Path(fill["viewer"]), (review, fill, video, side))
+        require_framing_only_plan(repair_task, summary)
+        changes = bool(summary["interpolated"] or summary["dropped_gen_frames"] or summary["missing_plate_frames"]
+                       or summary.get("offset_median",0))
+        weak = any(seg.get("confidence") is None or seg["confidence"] < 2 for seg in summary.get("segments",[]))
+        if changes and weak and not allow_ambiguous_timing:
+            raise ValueError("Timing edits have weak sequence evidence. Inspect Analyse first; enable allow_ambiguous_timing only to render the candidate plan.")
+        if method == "None" and (summary["interpolated"] or summary["missing_plate_frames"]):
+            raise ValueError("This plan needs new frames. Choose RIFE or LTX; None never substitutes held or black frames.")
+        if summary["missing_plate_frames"] and method != "LTX":
+            raise ValueError("Unbounded missing footage needs LTX. RIFE only fills short gaps with both endpoints.")
+        backend = LocalLTX(ltx_prompt) if method == "LTX" and summary["missing_plate_frames"] else None
+        if summary["interpolated"] and interp_model is None:
+            interp_model = load_rife()
+        # The legacy renderer is reused; Studio never silently falls back to optical flow.
+        choice = "generate (LTX)" if method == "LTX" else "none (debug)" if method == "None" else "interpolate (RIFE)"
+        out = PlateLock().run(plate, generated, "plate", format, choice, interp_model, mask)
+        video, side, preview, report, fill = out["result"]
+        if backend:
+            from .platelock.genfill import patched_frames
+            while len(patched_frames(fill["work"])) < len(fill["missing"]):
+                window = PlateLockFillWindow().run(fill)
+                images = backend(window[2], window[5], window[6], window[7], window[8])
+                previous = len(patched_frames(fill["work"]))
+                merged = PlateLockFillMerge().run(window[9], images)
+                video, side, preview, report = merged["result"]
+                if len(patched_frames(fill["work"])) <= previous:
+                    raise RuntimeError("LTX made no progress filling the missing frames.")
+        if position == "Correct constant shift":
+            from .platelock.spatial import correct_constant_shift
+            video, side, report = correct_constant_shift(video, fill, manifest, report, mask)
+        if position == "Correct framing (scale + position)":
+            from .platelock.spatial import correct_framing
+            video, side, report = correct_framing(video, fill, manifest, report, mask)
+        # Preserve the before measurements and source timebases in the repaired review.
+        path=Path(fill["viewer"])/"manifest.json"
+        after=json.loads(path.read_text())
+        after.update(before_drift=manifest["drift"], timebase=manifest.get("timebase"), summary=summary, repair_task=repair_task,
+                     repair_scope="Timing" + (" + fixed scale and position" if position == "Correct framing (scale + position)" else " + constant translation" if position == "Correct constant shift" else " only"))
+        path.write_text(json.dumps(after))
+        review = {"mode":mode,"method":method,"report":report,"video":video,"comparison":side,
+                  "pending_ltx":False,"viewer":fill["viewer"]}
+        return {"ui":out["ui"],"result":(review,fill,video,side)}
+
+
+class PlateLockExport:
+    CATEGORY = CATEGORY
+    FUNCTION = "run"
+    RETURN_TYPES = ("VIDEO",)
+    RETURN_NAMES = ("repaired_video",)
+    DESCRIPTION = "Expose a repaired video to Save Video. Analysis and unfinished LTX repairs cannot be exported here."
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"review": ("PLATELOCK_RESULT",)}}
+
+    def run(self, review):
+        if review.get("mode") != "Repair" or review.get("video") is None:
+            raise ValueError("Analysis has no repaired video. Select Repair on PlateLock before exporting.")
+        if review.get("pending_ltx"):
+            raise ValueError("LTX footage is still missing. Export the completed Fill Merge output instead.")
+        return (review["video"],)
+
+NODE_CLASS_MAPPINGS = {"PlateLockStudio": PlateLockStudio, "PlateLockExport": PlateLockExport, "PlateLock": PlateLock, "PlateLockImages": PlateLockImages,
                        "PlateLockFillWindow": PlateLockFillWindow, "PlateLockFillMerge": PlateLockFillMerge}
-NODE_DISPLAY_NAME_MAPPINGS = {"PlateLock": "PlateLock", "PlateLockImages": "PlateLock (images)",
+NODE_DISPLAY_NAME_MAPPINGS = {"PlateLockStudio": "PlateLock · Analyse & Repair", "PlateLockExport": "PlateLock · Repaired Video", "PlateLock": "PlateLock (legacy)", "PlateLockImages": "PlateLock (images)",
                               "PlateLockFillWindow": "PlateLock Fill · Window (for Wan VACE / LTX)",
                               "PlateLockFillMerge": "PlateLock Fill · Merge"}

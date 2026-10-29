@@ -1,0 +1,117 @@
+{
+  "programs": [],
+  "stream_groups": [],
+  "streams": [
+    {
+      "codec_name": "h264",
+      "codec_type": "video",
+      "width": 1920,
+      "height": 1080,
+      "r_frame_rate": "30/1",
+      "nb_read_frames": "1731"
+    },
+    {
+      "codec_name": "aac",
+      "codec_type": "audio",
+      "sample_rate": "48000",
+      "channels": 1,
+      "r_frame_rate": "0/0",
+      "nb_read_frames": "2705"
+    },
+    {
+      "codec_name": "mov_text",
+      "codec_type": "subtitle",
+      "r_frame_rate": "0/0",
+      "nb_read_frames": "6"
+    }
+  ],
+  "format": {
+    "duration": "57.700000",
+    "size": "48721458"
+  },
+  "checks": {
+    "full_video_audio_decode": "passed",
+    "visual_review_timestamps_seconds": [
+      2,
+      6,
+      10,
+      14,
+      16.5,
+      18,
+      21,
+      25,
+      29,
+      34,
+      40,
+      46,
+      49.5,
+      55
+    ],
+    "python_tests_passed": 43,
+    "javascript_tests_passed": 9,
+    "local_document_links": "passed"
+  },
+  "framing": {
+    "before_heldout_px": 12.41,
+    "decoded_after_heldout_px": 1.92691158503294,
+    "scope": "One fixed transform, all193 AI frames preserved at24fps; common192-frame comparison; residual drift remains.",
+    "motion": {
+      "state": "drift",
+      "headline": "Progressive movement remains",
+      "action": "Inspect the trend before applying any per-frame stabilisation.",
+      "residual_offset_px": [
+        0.3,
+        0.14
+      ],
+      "variation_p95_px": 2.78,
+      "start_to_end_px": 4.88,
+      "noise_floor_px": 0.84,
+      "trend_r2": 0.985,
+      "windows": [
+        [
+          -0.12,
+          2.26
+        ],
+        [
+          -0.07,
+          0.86
+        ],
+        [
+          0.27,
+          0.14
+        ],
+        [
+          0.68,
+          -1.62
+        ],
+        [
+          0.94,
+          -2.5
+        ]
+      ]
+    }
+  },
+  "timing": {
+    "copied_frames": 231,
+    "reconstructed_frames": 9,
+    "removed_repeats": 2,
+    "incorrect_copy_correspondences": 0,
+    "scope": "Controlled stock test, not natural model failure. Copy mapping checked against known frame truth. Interpolated images are estimates, not exact originals."
+  },
+  "composite": {
+    "frames": 97,
+    "mask": "Union of native Windows LTX Alpha Gen source and aligned-subject masks, holes filled, 9px dilation, 4px feather. Separate soft contact/shadow/reflection footprint (28px garage / 9px road feather). Not an automatic change detector.",
+    "scope": "External compositing experiment. Same mask used on raw and aligned AI. All alignment comes from actual PlateLock output. Protected decoded source pixels copied exactly before lossy delivery encoding.",
+    "protected_pixel_max_error_before_encode": 0,
+    "replacement_region_fraction_mean": 0.33708753440403466
+  },
+  "sha256": {
+    "platelock-poster-square.jpg": "a29f65249e1ca687e066b29c03b7f4f3f3c080866005dd6f0c51708c0acfa7c7",
+    "platelock-poster-16x9-source.png": "38d84f8c2b6c521ba420e2305ae7ad72d3a310b336f5e2f8da38eee7d62cd7b8",
+    "platelock-poster-9x16-source.png": "844a49c9d1f09044d915543d0d64bc77c9af013a7f7f2bae6af05d0cddcb328d",
+    "platelock-poster-square-source.png": "9b137a06ab109ca2d8da5145e02fab01e109fc4917edda3ab4bb6c81da34f62b",
+    "platelock-poster-9x16.jpg": "2398eabdd80051b377da4512681afaf69e83b077b8bfec5e9700a50eb2f48323",
+    "platelock-poster-16x9.jpg": "d9037cdb311bcff12561594d22d786740c120481b549b61affc34b886666cfab",
+    "PlateLock-Demo-1080p.mp4": "c0753e773e25d5db2d26d038d26df6359cb89c3378dd49cc0c981d28a8b261bb"
+  }
+}

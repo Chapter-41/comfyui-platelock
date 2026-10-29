@@ -1,0 +1,68 @@
+{
+  "fixture": "Procedural controlled defects, not a real-world accuracy benchmark",
+  "framing": {
+    "scale_ai_to_plate": 1.0256755496879515,
+    "translation_normalized": [
+      -0.022477637976408005,
+      0.009581423364579678
+    ],
+    "ai_scale": 0.9749671816825867,
+    "fit_frames": 15,
+    "validation_frames": 15,
+    "sampled_frames": 30,
+    "before_px": 6.41,
+    "after_px": 0.12,
+    "motion": {
+      "state": "stable",
+      "headline": "Mostly fixed framing; no clear progressive drift",
+      "action": "Inspect the corrected comparison. No per-frame stabilisation is indicated by these measurements.",
+      "residual_offset_px": [
+        0.0,
+        0.0
+      ],
+      "variation_p95_px": 0.04,
+      "start_to_end_px": 0.01,
+      "noise_floor_px": 0.11,
+      "trend_r2": 0.143,
+      "windows": [
+        [
+          0.0,
+          0.01
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -0.01
+        ],
+        [
+          0.01,
+          -0.0
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ]
+    },
+    "scope": "One fixed scale and translation; no per-frame stabilisation.",
+    "measurement": "Median shared-feature displacement on withheld frames; not whole-image pixel equality."
+  },
+  "timing": {
+    "wrong_copy_frames": [],
+    "gap_frames": [
+      20,
+      40
+    ],
+    "expected_gaps": [
+      20,
+      40
+    ]
+  },
+  "unknown": {
+    "refused": true,
+    "reason": "Not enough shared detail across the shot for a fixed framing correction. Select a subject mask."
+  }
+}

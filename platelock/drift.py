@@ -12,6 +12,8 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from .geometry import inspect_geometry
+
 MAX_DT = 2
 MIN_RESPONSE = 0.1
 
@@ -28,36 +30,78 @@ def edge_maps(rgb: np.ndarray, width: int = 320) -> np.ndarray:
     return out
 
 
-def measure(plate: np.ndarray, result: np.ndarray, valid: list[bool], plate_width: int) -> list[dict | None]:
-    """One entry per plate frame (None where the result has no frame)."""
+def measure(plate: np.ndarray, result: np.ndarray, valid: list[bool], plate_width: int,
+            mask: np.ndarray | None = None) -> list[dict | None]:
+    """Independent timing/position evidence. Scores are heuristics, not probabilities.
+
+    Timing uses a five-frame neighbourhood and motion-weighted edges. A large
+    score *range* is not confidence: the winner must beat the runner-up. Spatial
+    offsets are removed before comparison; stationary frames remain unmeasurable.
+    """
     ep, er = edge_maps(plate), edge_maps(result)
+    if er.shape[1:] != ep.shape[1:]:
+        er = np.stack([cv2.resize(f, ep.shape[:0:-1]) for f in er])
     scale = plate_width / ep.shape[2]
-    window = cv2.createHanningWindow(ep.shape[1:][::-1], cv2.CV_32F)
-    n = min(len(ep), len(er))
-    shifts = {}
+    h, w = ep.shape[1:]
+    roi = np.ones((h, w), np.float32) if mask is None else cv2.resize(mask.astype(np.float32), (w, h)).clip(0, 1)
+    if roi.mean() < .01:
+        raise ValueError("Matching mask covers too little of the plate (minimum 1%).")
+    window = cv2.createHanningWindow((w, h), cv2.CV_32F)
+    n = min(len(ep), len(er), len(valid))
+    shifts, aligned = {}, er.copy()
     for t in range(n):
-        if valid[t]:
-            (dx, dy), response = cv2.phaseCorrelate(ep[t], er[t], window)
-            shifts[t] = (dx, dy, response)
-    sure_shifts = [(dx, dy) for dx, dy, r in shifts.values() if r >= MIN_RESPONSE]
-    ox, oy = np.median(sure_shifts, axis=0) if sure_shifts else (0.0, 0.0)
-    undo = np.float32([[1, 0, -ox], [0, 1, -oy]])
-    er = np.stack([cv2.warpAffine(f, undo, f.shape[::-1], borderMode=cv2.BORDER_REFLECT) for f in er])
-    out: list[dict | None] = []
+        if not valid[t]:
+            continue
+        (dx, dy), response = cv2.phaseCorrelate((ep[t]*roi).copy(), (er[t]*roi).copy(), window)
+        reliable = np.isfinite([dx, dy, response]).all() and response >= MIN_RESPONSE and abs(dx) < w*.1 and abs(dy) < h*.1
+        shifts[t] = (dx, dy, bool(reliable))
+        if reliable:
+            aligned[t] = cv2.warpAffine(er[t], np.float32([[1,0,-dx],[0,1,-dy]]), (w,h), borderMode=cv2.BORDER_REFLECT)
+    # Preserve isolated timing errors: removing each frame's own translation
+    # would absorb a one-frame jump during a pan into a spatial correction.
+    trusted = [(dx,dy) for dx,dy,ok in shifts.values() if ok]
+    ox,oy = np.median(trusted,axis=0) if trusted else (0.,0.)
+    aligned = np.stack([cv2.warpAffine(f,np.float32([[1,0,-ox],[0,1,-oy]]),(w,h),borderMode=cv2.BORDER_REFLECT) for f in er])
+    def corr(a, b, weights):
+        den = weights.sum() + 1e-8
+        aa, bb = a - (a*weights).sum()/den, b - (b*weights).sum()/den
+        return float((aa*bb*weights).sum() / (np.sqrt((aa*aa*weights).sum()*(bb*bb*weights).sum())+1e-8))
+    out = []
     for t in range(n):
         if not valid[t]:
             out.append(None)
             continue
-        ncc = {k: float((er[t] * ep[t + k]).mean()) for k in range(-MAX_DT, MAX_DT + 1) if 0 <= t + k < len(ep)}
-        best = max(ncc, key=ncc.get)
-        sure = max(ncc.values()) - min(ncc.values()) > 0.04
-        dx, dy, response = shifts[t]
-        reliable = response >= MIN_RESPONSE
-        out.append({"dt": int(best) if sure and ncc[best] - ncc[0] > 0.01 else 0, "sure": bool(sure),
-                    "match": round(ncc[0], 3),
-                    "shift": round(float(np.hypot(dx, dy)) * scale, 2) if reliable else None,
-                    "dx": round(dx * scale, 2) if reliable else None, "dy": round(dy * scale, 2) if reliable else None})
-    return out + [None] * (len(valid) - n)
+        lo, hi = max(0,t-2), min(n,t+3)
+        motion = np.std(ep[lo:hi], axis=0)
+        activity = float((motion*roi).sum()/(roi.sum()+1e-8))
+        weights = roi * (.05 + motion)
+        scores = {}
+        for k in range(-MAX_DT, MAX_DT+1):
+            samples = [corr(aligned[j], ep[j+k], weights) for j in range(lo,hi)
+                       if valid[j] and 0 <= j+k < len(ep)]
+            if samples and 0 <= t+k < len(ep):
+                scores[k] = .8*corr(aligned[t],ep[t+k],weights) + .2*float(np.mean(samples))
+        ranked = sorted(scores, key=scores.get, reverse=True)
+        best = ranked[0]
+        margin = scores[best]-scores[ranked[1]] if len(ranked)>1 else 0
+        exact_matches = [k for k in scores if corr(er[t],ep[t+k],roi) > .9999]
+        reason = ("Not enough motion to determine timing" if activity < .025 else
+                  "Too little shared detail" if scores[best] < .35 else
+                  "Two frame matches are equally plausible" if margin < .008 else "")
+        # Direct equality verifies image correspondence, not unique timing in a hold.
+        if len(exact_matches) == 1 and activity >= .025:
+            reason, best = "", exact_matches[0]
+        sure = not reason
+        dx, dy, reliable = shifts[t]
+        out.append({"dt": int(best) if sure else 0, "sure": sure,
+                    "timing_reason": reason, "timing_status": "measured" if sure else "not_measurable",
+                    "match": round(scores.get(0,0),3), "margin": round(margin,4),
+                    "position_reason": "" if reliable else "Too little shared detail for position",
+                    "shift": round(float(np.hypot(dx,dy))*scale,2) if reliable else None,
+                    "dx": round(dx*scale,2) if reliable else None,
+                    "dy": round(dy*scale,2) if reliable else None,
+                    "geometry": inspect_geometry(ep[t], er[t], roi, scale) if reliable else None})
+    return out + [None]*(len(valid)-n)
 
 
 def summary(drift: list[dict | None]) -> dict:
@@ -65,7 +109,7 @@ def summary(drift: list[dict | None]) -> dict:
     if not m:
         return {"measured": 0}
     placed = [(i, d) for i, d in m if d["shift"] is not None]
-    out = {"measured": len(m), "in_sync": sum(1 for _, d in m if d["dt"] == 0),
+    out = {"measured": len(m), "in_sync": sum(1 for _, d in m if d["sure"] and d["dt"] == 0),
            "off_in_time": [i for i, d in m if d["dt"]], "unsure": sum(1 for _, d in m if not d["sure"])}
     if placed:
         shifts = np.array([d["shift"] for _, d in placed])
@@ -80,11 +124,11 @@ def summary(drift: list[dict | None]) -> dict:
 def report_lines(s: dict) -> list[str]:
     if not s.get("measured"):
         return []
-    lines = [f"timing: {s['in_sync']}/{s['measured']} frames show their own plate frame"]
+    lines = [f"timing: {s['in_sync']}/{s['measured']} frames are consistent with their plate timing (estimate)"]
     if s["off_in_time"]:
         lines.append(f"CHECK {len(s['off_in_time'])} frames look like a neighbouring plate frame: {s['off_in_time'][:30]}")
     if s["unsure"]:
-        lines.append(f"{s['unsure']} frames barely move, so their timing can't be verified")
+        lines.append(f"{s['unsure']} frames have insufficient evidence to determine timing (not detected errors)")
     if "median_shift_px" in s:
         lines.append(f"position: median {s['median_shift_px']:g} px off the plate, 95% within {s['p95_shift_px']:g} px "
                      f"(worst {s['worst_shift_px']:g} px at frame {s['worst_frame']})")

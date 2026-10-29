@@ -119,6 +119,34 @@ def estimate_reframe(gen: np.ndarray, plate: np.ndarray, pairs: list[tuple[int, 
     return m
 
 
+def estimate_feature_reframe(gen, plate, pairs, weights, samples=16):
+    """Fallback when edge ECC cannot converge: robust shared-detail scale/translation.
+
+    Initial pairs can be temporally imperfect. Require a consistent transform
+    across the shot, then re-run correspondence; never reuse these pairs as truth.
+    """
+    from .framing import correspondences
+    if len(pairs) < 12:
+        return None
+    selected=[pairs[i] for i in np.unique(np.linspace(0,len(pairs)-1,min(samples,len(pairs))).astype(int))]
+    found=[]
+    roi=features.cv2.resize(weights.astype(np.float32),plate.shape[1:][::-1])
+    rgb=lambda f: np.repeat(np.rint(np.clip(f,0,1)*255).astype(np.uint8)[...,None],3,axis=2)
+    for g,p in selected:
+        fit=correspondences(rgb(plate[p]),rgb(gen[g]),roi)
+        if fit is not None: found.append((p,fit[2],fit[3]))
+    if len(found)<8 or found[-1][0]-found[0][0]<len(plate)*.65:
+        return None
+    z=float(np.median([x[1] for x in found]));t=np.median([x[2] for x in found],axis=0)
+    if np.median(np.abs(np.array([x[1] for x in found])-z))>.01:
+        return None
+    if np.percentile(np.linalg.norm(np.array([x[2] for x in found])-t,axis=1),75)*plate.shape[2]>1.5:
+        return None
+    if abs(z-1)<.004 and np.linalg.norm(t)*plate.shape[2]<.5:
+        return None
+    return np.float32([[z,0,t[0]*plate.shape[2]],[0,z,t[1]*plate.shape[2]]])
+
+
 def _match_cost(r: "Result") -> float:
     return float(np.mean([r.alignment.cost[g, p] for g, p in r.alignment.pairs])) if r.alignment.pairs else 1.0
 
@@ -139,7 +167,7 @@ def analyze_arrays(
     mask: np.ndarray | None = None,
     auto_mask: bool = True,
     stiffness: float = 2.0,
-    min_evidence: float = 2.0,
+    min_evidence: float = 0.5,
     reframe: bool = True,
 ) -> Result:
     """gen, plate: float32 grayscale stacks (frames, H, W) in [0, 1].
@@ -157,6 +185,8 @@ def analyze_arrays(
     if r is None:
         return _analyze(gen, plate, **kw)
     m = estimate_reframe(gen, plate, r.alignment.pairs, r.weights)
+    if m is None:
+        m = estimate_feature_reframe(gen, plate, r.alignment.pairs, r.weights)
     if m is None:
         return r
     warped = _analyze(_warp(gen, m), plate, **kw)
@@ -185,8 +215,9 @@ def _analyze(gen, plate, thumb, motion_weight, max_interp, mask, auto_mask, stif
     dup = features.detect_duplicates(gen)
     # A gen pause where the plate pauses too is faithful, not a repeat.
     plate_hold = features.holds(plate)
+    plate_repeat = features.detect_duplicates(plate)
     for g, p in first.pairs:
-        if dup[g] and plate_hold[max(0, p - 1):p + 2].any():
+        if dup[g] and (plate_hold[max(0, p - 1):p + 2].any() or plate_repeat[p]):
             dup[g] = False
     al, _ = _align(gs, ps, w, motion_weight, stiffness, dup=dup, gap=gap)
     al = gate(al, dup, min_evidence)

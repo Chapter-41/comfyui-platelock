@@ -81,6 +81,18 @@ class PlateLockTest(unittest.TestCase):
         dup = detect_duplicates(restyle(plate))
         self.assertFalse(dup[70:77].any())
 
+    def test_shared_source_change_is_not_repaired_as_a_duplicate(self):
+        from platelock.features import holds
+        plate = synthetic_plate(n=80)
+        plate[31:, :72, :] = 1 - plate[31:, :72, :]
+        generated = np.clip(plate * 0.95 + 0.01, 0, 1)
+        self.assertTrue(detect_duplicates(generated)[30])
+        self.assertTrue(detect_duplicates(plate)[30])
+        self.assertFalse(holds(plate)[29:32].any())
+        result = analyze_arrays(generated, plate)
+        self.assertEqual(result.summary["interpolated"], [])
+        self.assertEqual(result.summary["missing_plate_frames"], [])
+
     def test_exact_repeat_is_detected(self):
         plate = synthetic_plate()
         truth = list(range(len(plate)))
@@ -140,6 +152,12 @@ class NextWindowTest(unittest.TestCase):
 
 
 class DriftTest(unittest.TestCase):
+    def test_uncertain_frames_are_not_counted_as_verified(self):
+        from platelock.drift import summary
+        result = summary([{"dt": 0, "sure": False, "shift": None}])
+        self.assertEqual(result["in_sync"], 0)
+        self.assertEqual(result["unsure"], 1)
+
     def test_finds_known_shift_and_time_offset(self):
         import cv2
         from platelock import drift

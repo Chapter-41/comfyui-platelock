@@ -1,0 +1,374 @@
+{
+ "last_node_id": 5,
+ "last_link_id": 4,
+ "nodes": [
+  {
+   "id": 1,
+   "type": "LoadVideo",
+   "pos": [
+    80,
+    80
+   ],
+   "size": [
+    300,
+    280
+   ],
+   "flags": {},
+   "order": 0,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "file",
+     "name": "file",
+     "type": "COMBO",
+     "widget": {
+      "name": "file"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "choose file to upload",
+     "name": "upload",
+     "type": "IMAGEUPLOAD",
+     "widget": {
+      "name": "upload"
+     },
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "VIDEO",
+     "name": "VIDEO",
+     "type": "VIDEO",
+     "links": [
+      1
+     ]
+    }
+   ],
+   "title": "Plate",
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "0.33.1",
+    "Node name for S&R": "LoadVideo"
+   },
+   "widgets_values": [
+    "platelock_demo_plate.mp4",
+    "image"
+   ]
+  },
+  {
+   "id": 2,
+   "type": "LoadVideo",
+   "pos": [
+    80,
+    430
+   ],
+   "size": [
+    300,
+    280
+   ],
+   "flags": {},
+   "order": 1,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "file",
+     "name": "file",
+     "type": "COMBO",
+     "widget": {
+      "name": "file"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "choose file to upload",
+     "name": "upload",
+     "type": "IMAGEUPLOAD",
+     "widget": {
+      "name": "upload"
+     },
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "VIDEO",
+     "name": "VIDEO",
+     "type": "VIDEO",
+     "links": [
+      2
+     ]
+    }
+   ],
+   "title": "Generated (as delivered)",
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "0.33.1",
+    "Node name for S&R": "LoadVideo"
+   },
+   "widgets_values": [
+    "platelock_demo_timing.mp4",
+    "image"
+   ]
+  },
+  {
+   "id": 3,
+   "type": "PlateLockStudio",
+   "pos": [
+    510,
+    180
+   ],
+   "size": [
+    420,
+    440
+   ],
+   "flags": {},
+   "order": 2,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "plate",
+     "type": "VIDEO",
+     "link": 1
+    },
+    {
+     "name": "generated",
+     "type": "VIDEO",
+     "link": 2
+    },
+    {
+     "name": "interp_model",
+     "type": "INTERP_MODEL",
+     "link": null
+    },
+    {
+     "name": "mask",
+     "type": "MASK",
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "name": "review",
+     "type": "PLATELOCK_RESULT",
+     "links": null
+    },
+    {
+     "name": "advanced_fill",
+     "type": "PLATELOCK_FILL",
+     "links": null
+    },
+    {
+     "name": "output",
+     "type": "VIDEO",
+     "links": [
+      3
+     ]
+    },
+    {
+     "name": "comparison_3up",
+     "type": "VIDEO",
+     "links": [
+      4
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "PlateLockStudio"
+   },
+   "widgets_values": [
+    "Analyse",
+    "RIFE",
+    "mp4",
+    "Measure only",
+    false,
+    "Continue the same shot with consistent subjects, camera and lighting.",
+    "Repair timing"
+   ],
+   "title": "PlateLock \u00b7 timing example"
+  },
+  {
+   "id": 4,
+   "type": "SaveVideo",
+   "pos": [
+    950,
+    0
+   ],
+   "size": [
+    480,
+    480
+   ],
+   "flags": {},
+   "order": 5,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "video",
+     "name": "video",
+     "type": "VIDEO",
+     "link": 3
+    },
+    {
+     "localized_name": "filename_prefix",
+     "name": "filename_prefix",
+     "type": "STRING",
+     "widget": {
+      "name": "filename_prefix"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "format",
+     "name": "format",
+     "type": "COMBO",
+     "widget": {
+      "name": "format"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "codec",
+     "name": "codec",
+     "type": "COMFY_DYNAMICCOMBO_V3",
+     "widget": {
+      "name": "codec"
+     },
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "video",
+     "name": "video",
+     "type": "VIDEO",
+     "links": null
+    }
+   ],
+   "title": "Output",
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "0.33.1",
+    "Node name for S&R": "SaveVideo"
+   },
+   "widgets_values": [
+    "platelock_demo/timing_output",
+    "auto",
+    "auto"
+   ]
+  },
+  {
+   "id": 5,
+   "type": "SaveVideo",
+   "pos": [
+    950,
+    400
+   ],
+   "size": [
+    480,
+    480
+   ],
+   "flags": {},
+   "order": 5,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "video",
+     "name": "video",
+     "type": "VIDEO",
+     "link": 4
+    },
+    {
+     "localized_name": "filename_prefix",
+     "name": "filename_prefix",
+     "type": "STRING",
+     "widget": {
+      "name": "filename_prefix"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "format",
+     "name": "format",
+     "type": "COMBO",
+     "widget": {
+      "name": "format"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "codec",
+     "name": "codec",
+     "type": "COMFY_DYNAMICCOMBO_V3",
+     "widget": {
+      "name": "codec"
+     },
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "video",
+     "name": "video",
+     "type": "VIDEO",
+     "links": null
+    }
+   ],
+   "title": "Comparison 3Up",
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "0.33.1",
+    "Node name for S&R": "SaveVideo"
+   },
+   "widgets_values": [
+    "platelock_demo/timing_comparison_3up",
+    "auto",
+    "auto"
+   ]
+  }
+ ],
+ "links": [
+  [
+   1,
+   1,
+   0,
+   3,
+   0,
+   "VIDEO"
+  ],
+  [
+   2,
+   2,
+   0,
+   3,
+   1,
+   "VIDEO"
+  ],
+  [
+   3,
+   3,
+   2,
+   4,
+   0,
+   "VIDEO"
+  ],
+  [
+   4,
+   3,
+   3,
+   5,
+   0,
+   "VIDEO"
+  ]
+ ],
+ "groups": [],
+ "config": {},
+ "extra": {
+  "platelock_demo": {
+   "case": "timing",
+   "license": "MIT",
+   "note": "Procedural example with known defects; not AI-generated footage."
+  }
+ },
+ "version": 0.4
+}

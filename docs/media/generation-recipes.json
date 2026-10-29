@@ -1,0 +1,111 @@
+{
+  "garage": {
+    "endpoint_id": "bytedance/seedance-2.0/us/reference-to-video",
+    "request_id": "01a18749-0670-7cf1-a7e4-70d600da411d",
+    "recipe": {
+      "endpoint_id": "bytedance/seedance-2.0/us/reference-to-video",
+      "input": {
+        "video_urls": [
+          "https://v3b.fal.media/files/b/0ab0370b/Z6D40_skTrYXhjsdvSths_output.mp4"
+        ],
+        "prompt": "Edit @Video1 by replacing the entire red convertible with a different car: a metallic cobalt-blue classic fastback coupe, closed roof, round headlights, thin chrome bumpers, silver five-spoke wheels, no visible branding. This is a complete vehicle replacement, not a repaint of the convertible. Keep the new coupe parked in exactly the original car's position and orientation with the same approximate wheelbase and footprint, tires contacting the original floor. The car remains stationary and empty throughout. Match the garage's existing lighting and believable floor reflections. Preserve the concrete walls, columns, floor seams, ceiling pipes, and all background texture. Reproduce the original camera move through the opening, with the original perspective, framing, speed, start and end positions. Eight seconds, one continuous shot, no people, no cuts, no additional camera move. Change only the vehicle and its physically necessary reflections and shadows.",
+        "duration": "8",
+        "resolution": "1080p",
+        "aspect_ratio": "16:9",
+        "generate_audio": false,
+        "codec": "H264",
+        "bitrate_mode": "high"
+      },
+      "note": "These are the submitted inputs, not resolved server defaults. For a variation, copy them and change only requested fields; reuse returned_seed when supported by the schema. Source URLs may expire."
+    },
+    "result": {
+      "video": {
+        "url": "https://v3b.fal.media/files/b/0ab05098/E4lO4wgU-Wa7LVGJD3sBO_video.mp4",
+        "content_type": "video/mp4",
+        "file_name": "video.mp4",
+        "file_size": 3332995
+      },
+      "seed": 842153152
+    }
+  },
+  "road": {
+    "endpoint_id": "bytedance/seedance-2.0/us/reference-to-video",
+    "request_id": "01a18763-0b06-7c60-9402-11d28a84f30c",
+    "recipe": {
+      "endpoint_id": "bytedance/seedance-2.0/us/reference-to-video",
+      "input": {
+        "video_urls": [
+          "https://v3b.fal.media/files/b/0ab05129/T0gd-gmMNlCcwDA9zXi2P_output.mp4"
+        ],
+        "prompt": "Edit @Video1. Replace only the red sports car driving ahead with a metallic cyan-blue vintage fastback coupe with a closed roof, narrow chrome rear bumper, round rear lights and no visible branding. Keep the replacement car exactly on the original car's trajectory, with the same changing screen position, orientation, wheel contact, speed and approximate footprint at every moment. The camera is following the moving car along the winding road. Preserve this exact continuous camera motion and timing, all lane markings, crash barriers, roadside posts, rocks, trees, hills, sky and road texture. Keep the original light, exposure and color of the surroundings. Change only the vehicle and its physically necessary immediate shadow. Five seconds, one continuous shot. No cuts, no new camera moves, no slow motion, no added people or vehicles. Preserve the original driving action and road geometry.",
+        "duration": "5",
+        "resolution": "1080p",
+        "aspect_ratio": "16:9",
+        "generate_audio": false,
+        "codec": "H264",
+        "bitrate_mode": "high"
+      },
+      "note": "These are the submitted inputs, not resolved server defaults. For a variation, copy them and change only requested fields; reuse returned_seed when supported by the schema. Source URLs may expire."
+    },
+    "result": {
+      "video": {
+        "url": "https://v3b.fal.media/files/b/0ab0513f/YT9clnB_lxXZZ0mhh27Y-_video.mp4",
+        "content_type": "video/mp4",
+        "file_name": "video.mp4",
+        "file_size": 4199021
+      },
+      "seed": 2021174761
+    }
+  },
+  "narration": {
+    "endpoint_id": "elevenlabs/tts/eleven-v4",
+    "request_id": "01a1876e-f95f-7911-9fb4-9033cec2df01",
+    "recipe": {
+      "endpoint_id": "elevenlabs/tts/eleven-v4",
+      "input": {
+        "text": "Change the car. Keep the shot.\n\nAI edits can shift the framing. PlateLock brings shared detail back into alignment.\n\nLoad the plate and edited take in ComfyUI. Analyse. Repair. Review.\n\nThen use LTX alpha masks to composite the replacement over the original background.\n\nTiming matters, too. In this controlled test, nine frames are missing and two repeat. PlateLock and RIFE restore the sequence.\n\nKeep the change. Keep the shot. PlateLock.",
+        "voice": "Daniel",
+        "language_code": "en",
+        "stability": 0.55,
+        "similarity_boost": 0.75,
+        "timestamps": true,
+        "output_format": "mp3_44100_192"
+      },
+      "note": "These are the submitted inputs, not resolved server defaults. For a variation, copy them and change only requested fields; reuse returned_seed when supported by the schema. Source URLs may expire."
+    },
+    "result": {
+      "audio": {
+        "url": "https://v3b.fal.media/files/b/0ab0517c/iKNLGeMViRPFDyZLyAEuP_output.mp3",
+        "content_type": "audio/mpeg",
+        "file_name": "output.mp3",
+        "file_size": 789986
+      }
+    }
+  },
+  "ltx_alpha": {
+    "execution": "Native Windows ComfyUI; external finishing workflow",
+    "model": "LTX 2.5 22B distilled + Alpha Gen 0.9 IC-LoRA",
+    "matte_resolution": [
+      1920,
+      1080
+    ],
+    "internal_spatial_padding": [
+      1920,
+      1088
+    ],
+    "frames": 97,
+    "fps": "24/1",
+    "seed": 1234,
+    "chunk_frames": 25,
+    "overlap_frames": 5,
+    "steps": 8,
+    "sampler": "euler",
+    "cfg": 1,
+    "prompt": "",
+    "source_frame_range": [
+      95,
+      191
+    ],
+    "reference": "https://docs.ltx.io/open-source-model/vfx-post-production/alpha-gen"
+  }
+}

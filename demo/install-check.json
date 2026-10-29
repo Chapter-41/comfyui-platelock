@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "checks": {
+    "ffmpeg": true,
+    "ffprobe": true,
+    "opencv_sift": true,
+    "numpy": true
+  },
+  "versions": {
+    "python": "3.12.9",
+    "numpy": "2.5.4",
+    "opencv-python-headless": "5.0.0.93",
+    "torch": null,
+    "opencv_runtime": "5.0.0"
+  },
+  "note": "RIFE checkpoints are needed only for gap repair. LTX is experimental and not checked here."
+}

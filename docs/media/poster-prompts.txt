@@ -1,0 +1,19 @@
+Poster generation used the built-in OpenAI image-generation tool.
+
+LANDSCAPE
+Use case: ads-marketing. Create ONE sophisticated landscape 16:9 film-software poster, high resolution at least 1920x1080.
+The reference image is our actual AI-edited shot, a metallic blue vintage coupe in a dark concrete garage. Use this car and this photographic setting as the visual foundation. Retain the photographic realism, perspective and dark cinematic atmosphere. Clean up visual clutter only as needed for poster legibility. The car dominates the lower two thirds. A very subtle thin cyan registration corner motif around the photographic frame suggests precision and alignment, never a fake measurement, never a fake before/after.
+Art direction: restrained international editorial typography, huge confident off-white sans-serif title, beautiful optical spacing, deep charcoal concrete, blue automotive paint, one minimal electric cyan accent. Design feels like a premium film festival poster for a real production tool, not a SaaS landing page or a presentation slide.
+Exact text only: "PlateLock" as the large title in upper-left negative space; directly underneath in smaller but clear type "Keep the change. Keep the shot."; one small unobtrusive line at bottom left "Timing + framing repair for AI video edits."
+No top banner, no text boxes, no cards, no bullet points, no gradients behind type, no interface mockups, no extra slogans, no badges, no logos from other companies, no watermark. One full-bleed photographic composition. Keep all text comfortably inside 6 percent safe margins.
+
+PORTRAIT
+Adapt the supplied approved PlateLock poster into ONE vertical 9:16 poster, ideally 1080 x 1920 or higher native resolution. This is a format adaptation of the same design, not a redesign.
+Preserve the same metallic blue vintage coupe, photoreal concrete garage, charcoal and off-white palette, restrained cyan registration corners and confident bold sans-serif typography. Recompose the photograph vertically with the WHOLE car visible across the middle to lower half; extend the ceiling and floor naturally to make portrait breathing room. Keep the car realistic and its proportions unchanged. No stretched car, no cropping off its nose or tail.
+Exact text: "PlateLock" as a large single-line title across the upper area. Underneath, two short lines: "Keep the change." then "Keep the shot." Bottom-left small descriptor on two lines: "Timing + framing repair" then "for AI video edits."
+Use 7 percent safe margins all around. Strong optical spacing. No top banner, no text boxes, no cards, no bullets, no extra copy or badges. Full bleed photography; clean and premium. Output aspect ratio MUST be 9:16 portrait.
+
+SQUARE
+Adapt the supplied approved PlateLock poster into ONE SQUARE 1:1 poster, ideally 2048 x 2048 native resolution. Format adaptation of the exact same design, not a redesign. Preserve the same metallic blue vintage coupe, photoreal concrete garage, charcoal and off-white palette, restrained cyan registration corners and confident bold sans-serif type. Keep the entire car visible with undistorted realistic proportions, centered across the middle/lower area. Recompose garage space naturally for a square.
+Exact text: "PlateLock" large at upper left, comfortably fitting one line. Beneath it, smaller: "Keep the change." then "Keep the shot." Small descriptor at bottom left on two lines: "Timing + framing repair" then "for AI video edits."
+Full bleed photographic poster. Generous 7 percent safe margins. Clear hierarchy and beautiful optical spacing. No top banner, text boxes, bullet cards, UI, badges, extra words or watermarks. Keep continuity with the reference image. Output aspect ratio MUST be 1:1 square.

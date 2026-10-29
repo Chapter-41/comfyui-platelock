@@ -38,7 +38,7 @@ def describe(o: Op, generated=()) -> tuple[str, tuple]:
     if o.plate in generated:
         return "GENERATED - video model filled the gap", PURPLE
     if o.op == "copy":
-        return f"generated frame {o.gen}", FG
+        return f"source: AI frame {o.gen}", FG
     if o.op == "interp":
         why = "generator repeated a frame here" if o.reason == "duplicate" else "generator skipped this frame"
         return f"FILLED - {why}", ORANGE
@@ -101,7 +101,7 @@ def timeline(ops: list[Op], summary: dict, width: int, cursor: int | None = None
 def legend(width: int, generated=()) -> np.ndarray:
     img = np.full((24, width, 3), BG, np.uint8)
     x = 4
-    items = [("matches plate", GREY), ("filled", ORANGE)] + ([("generated", PURPLE)] if generated else []) \
+    items = [("source frame", GREY), ("filled", ORANGE)] + ([("generated", PURPLE)] if generated else []) \
         + [("missing", RED), ("removed generated frame", BLUE)]
     for label, color in items:
         cv2.rectangle(img, (x, 7), (x + 12, 19), color, -1)
@@ -123,13 +123,14 @@ def _panel(frame: np.ndarray | None, size: tuple[int, int], title: str, status: 
     return np.vstack([band, img, foot])
 
 
-def _row(plate, delivered, locked, o: Op, gen_count: int, size, generated=()) -> np.ndarray:
-    d_status = f"generated frame {o.plate}" if o.plate < gen_count else "clip already ended"
+def _row(plate, delivered, locked, o: Op, gen_count: int, size, generated=(), result_label="OUTPUT") -> np.ndarray:
+    d_status = f"original AI frame {o.plate}" if o.plate < gen_count else "clip already ended"
     r_status, r_color = describe(o, generated)
+    r_status = f"output frame {o.plate} | {r_status}"
     return np.hstack([
         _panel(plate, size, f"PLATE  frame {o.plate}", "reference", DIM),
         _panel(delivered, size, "AS DELIVERED", d_status, DIM),
-        _panel(locked, size, "LOCKED", r_status, r_color),
+        _panel(locked, size, result_label, r_status, r_color),
     ])
 
 
@@ -179,7 +180,7 @@ def summary_image(plate: np.ndarray, gen: np.ndarray, ops: list[Op], summary: di
 
 def compare_video(plate: np.ndarray, gen: np.ndarray, ops: list[Op], summary: dict, out_path: str | Path,
                   fps: Fraction, panel_width: int = 480, start: int = 0, end: int | None = None, fill=None,
-                  final: np.ndarray | None = None, generated=()) -> int:
+                  final: np.ndarray | None = None, generated=(), result_label="OUTPUT") -> int:
     """Plate | as delivered (frame for frame) | locked, with status and a timeline cursor."""
     filler = Filler(ops, fill)
     ph = int(round(plate.shape[1] * panel_width / plate.shape[2]))
@@ -201,7 +202,7 @@ def compare_video(plate: np.ndarray, gen: np.ndarray, ops: list[Op], summary: di
         else:
             r = None
         delivered = small_gen[p] if p < len(small_gen) else None
-        frame = np.vstack([_row(small_plate[p], delivered, r, o, len(gen), size, generated),
+        frame = np.vstack([_row(small_plate[p], delivered, r, o, len(gen), size, generated, result_label),
                            timeline(ops, summary, width, cursor=p, generated=generated), legend(width, generated)])
         if first is None:
             h = frame.shape[0] + frame.shape[0] % 2
