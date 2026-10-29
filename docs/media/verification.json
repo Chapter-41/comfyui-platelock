@@ -27,7 +27,7 @@
   ],
   "format": {
     "duration": "57.700000",
-    "size": "48662190"
+    "size": "48712891"
   },
   "checks": {
     "full_video_audio_decode": "passed",
@@ -56,7 +56,32 @@
       "picture_stream_sha256": "294adb5319582a05381045514bb3dee202d82e8b5efc2ae5b5b7a37f415dc9fd",
       "picture_stream_unchanged": true,
       "speech_fits_all_six_timeline_windows": true,
-      "captions_updated": true
+      "captions_updated": true,
+      "scope": "Historical check at commit a56a531: picture was unchanged when narration was replaced. The later composite revision changes picture."
+    },
+    "composite_revision": {
+      "full_video_audio_decode": "passed",
+      "changed_scenes_reviewed_seconds": [
+        2,
+        21,
+        25,
+        49.5
+      ],
+      "decoded_edge_frames_reviewed": [
+        0,
+        12,
+        24,
+        36,
+        48,
+        60,
+        72,
+        84,
+        96
+      ],
+      "audio_stream_unchanged": true,
+      "audio_stream_sha256": "69cff501ef7f26e8906411c2cc9e54fda634f7abbf6bd04fddf970676785f874",
+      "subtitle_stream_unchanged": true,
+      "subtitle_stream_sha256": "52eb8b8b77fa4a3e450218d319e494e097a7e3be3fb8682a230323c8a4074e56"
     }
   },
   "framing": {
@@ -108,10 +133,16 @@
   },
   "composite": {
     "frames": 97,
-    "mask": "Union of native Windows LTX Alpha Gen source and aligned-subject masks, holes filled, 9px dilation, 4px feather. Separate soft contact/shadow/reflection footprint (28px garage / 9px road feather). Not an automatic change detector.",
-    "scope": "External compositing experiment. Same mask used on raw and aligned AI. All alignment comes from actual PlateLock output. Protected decoded source pixels copied exactly before lossy delivery encoding.",
+    "mask": "LTX source/new-car mattes; 1px new-car choke, 0.8px edge softening; 2px disocclusion expansion; narrow 20px contact extension; source-reflection patches. Background-only local linear-light color match from unchanged surroundings, smoothed over time. No car color correction and no geometry change.",
+    "scope": "External garage finishing experiment, not a PlateLock feature. Geometry comes from actual PlateLock output. Protected decoded source pixels copied exactly before lossy delivery encoding.",
     "protected_pixel_max_error_before_encode": 0,
-    "replacement_region_fraction_mean": 0.33708753440403466
+    "replacement_region_fraction_mean": 0.17292291607006488,
+    "decoded_background_ring": {
+      "scope": "Both final composites decoded and compared with the same decoded original in a 4\u201322px ring outside the source/new-car union, excluding floor. Not a whole-image quality metric.",
+      "frames": 97,
+      "old_median_mae": 2.8746532660227597,
+      "new_median_mae": 1.9575387377854732
+    }
   },
   "sha256": {
     "platelock-poster-square.jpg": "a29f65249e1ca687e066b29c03b7f4f3f3c080866005dd6f0c51708c0acfa7c7",
@@ -120,6 +151,7 @@
     "platelock-poster-square-source.png": "9b137a06ab109ca2d8da5145e02fab01e109fc4917edda3ab4bb6c81da34f62b",
     "platelock-poster-9x16.jpg": "2398eabdd80051b377da4512681afaf69e83b077b8bfec5e9700a50eb2f48323",
     "platelock-poster-16x9.jpg": "d9037cdb311bcff12561594d22d786740c120481b549b61affc34b886666cfab",
-    "PlateLock-Demo-1080p.mp4": "734511ab7b6991c8dbe4c2669bc6bace7f3ebf27c7d0cda7ff7905ac2eb31dfb"
+    "PlateLock-Demo-1080p.mp4": "42f63687e93e7b208cd601ab492d85d308ddc47959413ec97dac743064e3b151",
+    "PlateLock-Composite-Refinement.mp4": "ce94ae87c206b99307c979c7d575b0c7fdbc694c4702ca3f04b03f78503ed4bc"
   }
 }

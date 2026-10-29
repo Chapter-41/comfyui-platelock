@@ -7,6 +7,7 @@ Align AI video edits to the original plate. Repair timing and framing mismatches
 ## Downloads
 
 - [Demo video — 1080p](PlateLock-Demo-1080p.mp4)
+- [Composite refinement — previous / refined](PlateLock-Composite-Refinement.mp4)
 - [English captions](PlateLock-Demo.en.srt)
 - [Landscape poster — 1920 × 1080](platelock-poster-16x9.jpg)
 - [Portrait poster — 1080 × 1920](platelock-poster-9x16.jpg)
@@ -20,7 +21,7 @@ The car edits were generated at native 1920 × 1080 with Seedance 2.0. Their sto
 
 The garage comparison uses the actual exported PlateLock correction. Median shared-feature displacement on withheld frames falls from **12.4 to 1.9 pixels**, measured again after decoding the output. This measures shared detail, not every pixel. The correction is a single fixed scale and translation; some residual movement remains.
 
-The garage finishing example uses native **LTX 2.5 Alpha Gen on Windows** to mask the old and replacement cars. Their masks are combined, holes filled, and edges and the shadow/reflection region refined before linear-light compositing. Protected source pixels are copied exactly before delivery compression. This is an external finishing experiment, not an automatic change-mask feature in PlateLock.
+The garage finishing example uses native **LTX 2.5 Alpha Gen on Windows** to mask the old and replacement cars. The car matte is tightened, with small contact-shadow and reflection patches. A local background-only colour match removes much of the warm spill introduced by the AI edit before linear-light compositing; the new car retains its generated colour. Protected source pixels are copied exactly before delivery compression. This is an external finishing experiment, not an automatic change-mask feature in PlateLock.
 
 The road reveal is an additional AI replacement with the actual PlateLock framing output. It is not a selective composite: the Alpha Gen mask lost the receding car, so that mask result was rejected. Progressive residual movement remains in this shot.
 

@@ -120,5 +120,19 @@
       191
     ],
     "reference": "https://docs.ltx.io/open-source-model/vfx-post-production/alpha-gen"
+  },
+  "garage_composite_finishing": {
+    "scope": "Shot-specific external finishing after actual PlateLock alignment. Parameters in pixels at 1920x1080; not an automatic change detector.",
+    "matte_threshold": 0.5,
+    "new_car_choke_px": 1,
+    "new_car_feather_sigma_px": 0.8,
+    "disocclusion_union_dilation_px": 2,
+    "disocclusion_feather_sigma_px": 1.3,
+    "contact_extension_down_px": 20,
+    "contact_feather_sigma_px": 5,
+    "reflection_patches": "Select small red/amber source-floor reflections below the cars; dilate 9px and feather with sigma 7px.",
+    "background_colour_match": "Linear BT.709 difference field estimated outside both car masks and affected floor, with a 32px exclusion border. Weighted Gaussian smoothing at 320x180, sigma 12; temporal EMA 0.65 previous + 0.35 current. Apply only to background replacement patches, preserving the new car colour.",
+    "composite": "Blend matched background patches into original plate, then overlay new car. Copy protected source pixels exactly before encoding.",
+    "geometry": "No additional geometry changes."
   }
 }
