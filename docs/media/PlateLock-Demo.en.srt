@@ -1,23 +1,23 @@
 1
-00:00:00,550 --> 00:00:02,790
-Change the car. Keep the shot.
+00:00:00,450 --> 00:00:03,650
+Here's the original shot, and here's the AI edit.
 
 2
-00:00:06,600 --> 00:00:12,200
-AI edits can shift the framing. PlateLock brings shared detail back into alignment.
+00:00:05,350 --> 00:00:10,497
+The car looks good, but the framing has shifted a little. PlateLock lines it back up.
 
 3
-00:00:13,250 --> 00:00:18,970
-Load the plate and edited take in ComfyUI. Analyse. Repair. Review.
+00:00:13,100 --> 00:00:17,260
+You load both clips in ComfyUI, check the match, and run the repair.
 
 4
-00:00:20,100 --> 00:00:25,620
-Then use LTX alpha masks to composite the replacement over the original background.
+00:00:19,300 --> 00:00:24,140
+Then, with an LTX mask, you can keep the new car and bring back the original background.
 
 5
-00:00:35,300 --> 00:00:44,580
-Timing matters, too. In this controlled test, nine frames are missing and two repeat. PlateLock and RIFE restore the sequence.
+00:00:35,000 --> 00:00:42,760
+For timing, we made a test with nine missing frames and two repeats. PlateLock matches the sequence, and RIFE fills the gaps.
 
 6
-00:00:52,400 --> 00:00:55,520
-Keep the change. Keep the shot. PlateLock.
+00:00:52,000 --> 00:00:56,160
+That's PlateLock. The AI edit, lined up with your original shot.

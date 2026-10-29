@@ -27,7 +27,7 @@
   ],
   "format": {
     "duration": "57.700000",
-    "size": "48721458"
+    "size": "48662190"
   },
   "checks": {
     "full_video_audio_decode": "passed",
@@ -49,7 +49,15 @@
     ],
     "python_tests_passed": 43,
     "javascript_tests_passed": 9,
-    "local_document_links": "passed"
+    "local_document_links": "passed",
+    "narration_revision": {
+      "voice": "Chris",
+      "full_audio_video_decode": "passed",
+      "picture_stream_sha256": "294adb5319582a05381045514bb3dee202d82e8b5efc2ae5b5b7a37f415dc9fd",
+      "picture_stream_unchanged": true,
+      "speech_fits_all_six_timeline_windows": true,
+      "captions_updated": true
+    }
   },
   "framing": {
     "before_heldout_px": 12.41,
@@ -112,6 +120,6 @@
     "platelock-poster-square-source.png": "9b137a06ab109ca2d8da5145e02fab01e109fc4917edda3ab4bb6c81da34f62b",
     "platelock-poster-9x16.jpg": "2398eabdd80051b377da4512681afaf69e83b077b8bfec5e9700a50eb2f48323",
     "platelock-poster-16x9.jpg": "d9037cdb311bcff12561594d22d786740c120481b549b61affc34b886666cfab",
-    "PlateLock-Demo-1080p.mp4": "c0753e773e25d5db2d26d038d26df6359cb89c3378dd49cc0c981d28a8b261bb"
+    "PlateLock-Demo-1080p.mp4": "734511ab7b6991c8dbe4c2669bc6bace7f3ebf27c7d0cda7ff7905ac2eb31dfb"
   }
 }

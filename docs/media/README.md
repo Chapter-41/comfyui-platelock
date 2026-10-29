@@ -38,7 +38,7 @@ The app footage is a real ComfyUI capture. Execution waits are omitted. Optional
 - Car replacements: Seedance 2.0 through fal.ai, endpoint `bytedance/seedance-2.0/us/reference-to-video`.
 - Garage mattes: [LTX 2.5 Alpha Gen](https://docs.ltx.io/open-source-model/vfx-post-production/alpha-gen), generated locally in Windows ComfyUI.
 - Poster artwork and format adaptations: OpenAI built-in image generation; prompts included in [poster-prompts.txt](poster-prompts.txt).
-- Synthetic narration: ElevenLabs / Daniel through fal.ai, endpoint `elevenlabs/tts/eleven-v4`.
+- Synthetic narration: ElevenLabs / Chris through fal.ai, endpoint `elevenlabs/tts/eleven-v4`.
 - Ambient bed: original synthesized composition; no sampled recording.
 
 No client footage is included. The repository's MIT license applies to application code; it does not relicense stock footage, model weights or third-party media. Provider terms apply to generated assets. This repository publication does not submit the project to the competition.

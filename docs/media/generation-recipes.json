@@ -59,27 +59,40 @@
   },
   "narration": {
     "endpoint_id": "elevenlabs/tts/eleven-v4",
-    "request_id": "01a1876e-f95f-7911-9fb4-9033cec2df01",
+    "request_id": "01a1889a-8d14-7d81-bc1c-56265494b513",
     "recipe": {
       "endpoint_id": "elevenlabs/tts/eleven-v4",
       "input": {
-        "text": "Change the car. Keep the shot.\n\nAI edits can shift the framing. PlateLock brings shared detail back into alignment.\n\nLoad the plate and edited take in ComfyUI. Analyse. Repair. Review.\n\nThen use LTX alpha masks to composite the replacement over the original background.\n\nTiming matters, too. In this controlled test, nine frames are missing and two repeat. PlateLock and RIFE restore the sequence.\n\nKeep the change. Keep the shot. PlateLock.",
-        "voice": "Daniel",
+        "text": "[conversational] Here's the original shot, and here's the AI edit.\n\n[relaxed] The car looks good, but the framing has shifted a little. PlateLock lines it back up.\n\nYou load both clips in ComfyUI, check the match, and run the repair.\n\nThen, with an LTX mask, you can keep the new car and bring back the original background.\n\nFor timing, we made a test with nine missing frames and two repeats. PlateLock matches the sequence, and RIFE fills the gaps.\n\n[relaxed] That's PlateLock. The AI edit, lined up with your original shot.",
+        "voice": "Chris",
         "language_code": "en",
-        "stability": 0.55,
-        "similarity_boost": 0.75,
+        "stability": 0.45,
+        "similarity_boost": 0.65,
         "timestamps": true,
-        "output_format": "mp3_44100_192"
+        "output_format": "mp3_44100_192",
+        "seed": 41129
       },
       "note": "These are the submitted inputs, not resolved server defaults. For a variation, copy them and change only requested fields; reuse returned_seed when supported by the schema. Source URLs may expire."
     },
     "result": {
       "audio": {
-        "url": "https://v3b.fal.media/files/b/0ab0517c/iKNLGeMViRPFDyZLyAEuP_output.mp3",
+        "url": "https://v3b.fal.media/files/b/0ab05928/-P4IZNF8Rwvou9pvuTRz1_output.mp3",
         "content_type": "audio/mpeg",
         "file_name": "output.mp3",
-        "file_size": 789986
+        "file_size": 726666
       }
+    },
+    "edit": {
+      "delivery": "Conversational walkthrough, stock voice Chris",
+      "placements_seconds": [
+        0.45,
+        5.35,
+        13.1,
+        19.3,
+        35,
+        52
+      ],
+      "ambient_bed_gain": 0.3
     }
   },
   "ltx_alpha": {
