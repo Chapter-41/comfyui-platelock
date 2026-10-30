@@ -134,5 +134,84 @@
     "background_colour_match": "Linear BT.709 difference field estimated outside both car masks and affected floor, with a 32px exclusion border. Weighted Gaussian smoothing at 320x180, sigma 12; temporal EMA 0.65 previous + 0.35 current. Apply only to background replacement patches, preserving the new car colour.",
     "composite": "Blend matched background patches into original plate, then overlay new car. Copy protected source pixels exactly before encoding.",
     "geometry": "No additional geometry changes."
+  },
+  "real_ai_timing": {
+    "source": "garage",
+    "source_request_id": "01a18749-0670-7cf1-a7e4-70d600da411d",
+    "source_frame_range": [
+      0,
+      143
+    ],
+    "ai_frame_range": [
+      0,
+      142
+    ],
+    "note": "Contiguous action excerpt, no injected internal timing changes. Full raw take also contains the mismatch at plate frame 96. Native RIFE + fixed framing, ambiguity override disabled."
+  },
+  "ltx_tail": {
+    "execution": "Native Windows ComfyUI, separate advanced continuation workflow",
+    "model": "LTX 2.5 22B distilled int8 convrot",
+    "source": "Complete garage AI take, 193 frames; original file kept intact",
+    "source_context_frame_range": [
+      176,
+      192
+    ],
+    "context_frames": 17,
+    "generated_window_frames": 41,
+    "seed": 41,
+    "fps": "24/1",
+    "resolution": [
+      1920,
+      1088
+    ],
+    "delivery_crop": "4px top + 4px bottom padding removed",
+    "generated_output_frame_range": [
+      193,
+      215
+    ],
+    "output_frames": 216,
+    "reason": "A nine-second edit requires 23 more frames than the complete 193-frame AI take. This is not an unexpected model-truncation claim.",
+    "workflow": "ltx-tail-workflow-api.json",
+    "merge": "PlateLock genfill.save_patches colour match; only appended frames used. Existing decoded AI pixels copied identically before delivery encoding."
+  },
+  "narration_revision_real_ai": {
+    "endpoint_id": "elevenlabs/tts/eleven-v4",
+    "request_id": "01a1891e-7fc4-7a33-bffa-e8e8aa0ffa2f",
+    "recipe": {
+      "endpoint_id": "elevenlabs/tts/eleven-v4",
+      "input": {
+        "text": "[conversational] This is the actual AI output. Its timing slips midway through. PlateLock realigns it, and RIFE fills the gap.\n\n[relaxed] The edit needs another second. LTX continues the shot, keeping the original AI frames and generating only the extra tail.",
+        "voice": "Chris",
+        "language_code": "en",
+        "stability": 0.45,
+        "similarity_boost": 0.65,
+        "timestamps": true,
+        "output_format": "mp3_44100_192",
+        "seed": 41130
+      },
+      "note": "These are the submitted inputs, not resolved server defaults. For a variation, copy them and change only requested fields; reuse returned_seed when supported by the schema. Source URLs may expire."
+    },
+    "result": {
+      "audio": {
+        "url": "https://v3b.fal.media/files/b/0ab05c88/ZF7gtt5swFCoQLgqVHewL_output.mp3",
+        "content_type": "audio/mpeg",
+        "file_name": "output.mp3",
+        "file_size": 381222
+      }
+    },
+    "edit": {
+      "placements_seconds": [
+        33,
+        46.2
+      ],
+      "preserved_original_paragraphs": [
+        0,
+        1,
+        2,
+        3,
+        5
+      ],
+      "closing_placement_seconds": 59.3
+    }
   }
 }

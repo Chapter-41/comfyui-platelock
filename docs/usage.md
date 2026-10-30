@@ -76,7 +76,7 @@ Frame numbers are zero-based. Measurements use original plate pixels. Unsampled 
 
 ## Experimental LTX
 
-LTX is not needed for the recommended demo or framing correction. Its integration has contract tests, not a verified full generation on the current test machine. It expects these local checkpoints:
+Framing correction does not need LTX. The public demo now includes a separately executed native LTX continuation of a real AI take: 23 additional frames for a longer edit. That advanced workflow is documented in the [demo evidence](media/real-ai-evidence.json). Studio’s automatic reconstruction integration still has contract tests rather than a validated full execution. It expects these local checkpoints:
 
 - `diffusion_models/ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors`
 - `vae/ltx-2.5-video-vae-bf16.safetensors`

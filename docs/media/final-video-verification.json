@@ -1,0 +1,35 @@
+{
+  "file": "PlateLock-Demo-Final-1080p.mp4",
+  "sha256": "87fedde6f90cf7d15565c9463be26826ad570e24b139a3ed0162dc8b49712bbf",
+  "date": "2026-10-30",
+  "approved_source_take": "take-20261030T093245754Z",
+  "duration_seconds": 65,
+  "width": 1920,
+  "height": 1080,
+  "frame_rate": "30/1",
+  "decoded_video_frames": 1950,
+  "full_audio_video_decode": "passed",
+  "picture_spot_checks_seconds": [
+    2,
+    15,
+    22,
+    38,
+    49,
+    61
+  ],
+  "voice": "User-recorded wireless microphone; no synthetic narration",
+  "facecam": "Latest approved take; circle 328 px at x=1556, y=36; source camera and audio remain synchronized",
+  "alignment": "5-second lead-in removed. Silent source interval 41.7\u201345.9s moved to 27.3s; timing explanation shifted +4.2s together with face cam. No spoken words removed.",
+  "captions": {
+    "file": "PlateLock-Demo-Final.en.srt",
+    "cues": 18,
+    "embedded": "mov_text; English; optional",
+    "timing": "Local speech recognition word timestamps, adjusted for edit; model names and nine-second requirement normalized against script"
+  },
+  "audio_measurement": {
+    "integrated_lufs": -16.81,
+    "true_peak_dbtp": -1.43,
+    "loudness_range_lu": 5.7
+  },
+  "file_bytes": 33733742
+}

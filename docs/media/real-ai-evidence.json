@@ -1,0 +1,183 @@
+{
+  "timing": {
+    "scope": "Natural frame-correspondence mismatch in a real Seedance 2.0 output. Not independent proof that the model literally deleted a source frame.",
+    "source_request_id": "01a18749-0670-7cf1-a7e4-70d600da411d",
+    "original_ai_sha256": "7aa92968b151e56b5a68f9916b6404143f432e388cf961af12a5056748cdc243",
+    "original_ai": {
+      "path": "hero-ai.mp4",
+      "width": 1920,
+      "height": 1080,
+      "fps": "24/1",
+      "frames": 193,
+      "codec": "h264"
+    },
+    "plate_excerpt_frames": [
+      0,
+      143
+    ],
+    "ai_excerpt_frames": [
+      0,
+      142
+    ],
+    "excerpt_selection": "Contiguous six-second action excerpt. No internal frames removed, duplicated, retimed or shifted. Full-take analysis already identifies the same gap at plate frame 96; late ambiguous regions are not claimed as repaired.",
+    "copied_frames": 143,
+    "reconstructed_frames": 1,
+    "reconstructed_plate_frame": 96,
+    "dropped_ai_frames": 0,
+    "copied_indices_contiguous_and_complete": true,
+    "native_rife": true,
+    "ambiguity_override": false,
+    "segment_confidence": [
+      7.4,
+      5.3
+    ],
+    "copied_frame_psnr_db_median": 42.99865651850528,
+    "copied_frame_psnr_db_min": 42.598187267753,
+    "psnr_scope": "Timing-only stage: decoded output vs matching decoded input at 640px width before fixed framing; H.264 re-encoding changes pixels.",
+    "source_proxy_correspondence": "All 192 proxy frames match their original native-1080p indices; no proxy-induced timing gap.",
+    "output": {
+      "path": "timing-repaired.mp4",
+      "width": 1920,
+      "height": 1080,
+      "fps": "24/1",
+      "frames": 144,
+      "codec": "h264"
+    }
+  },
+  "framing": {
+    "repair_task": "Repair timing + framing",
+    "scope": "Real timing mismatch plus one fixed framing correction; not whole-frame identity or general stabilization.",
+    "before_shared_detail_px": 12.93,
+    "decoded_after_heldout_shared_detail_px": 1.2467412650585175,
+    "heldout_frames_checked": 40,
+    "output_frames": 144,
+    "residual_motion": {
+      "state": "stable",
+      "headline": "Mostly fixed framing; no clear progressive drift",
+      "action": "Inspect the corrected comparison. No per-frame stabilisation is indicated by these measurements.",
+      "residual_offset_px": [
+        0.26,
+        -0.4
+      ],
+      "variation_p95_px": 1.85,
+      "start_to_end_px": 2.89,
+      "noise_floor_px": 0.78,
+      "trend_r2": 0.974,
+      "windows": [
+        [
+          0.05,
+          1.03
+        ],
+        [
+          0.06,
+          -0.02
+        ],
+        [
+          0.3,
+          -0.45
+        ],
+        [
+          0.28,
+          -0.97
+        ],
+        [
+          0.31,
+          -1.85
+        ]
+      ]
+    }
+  },
+  "extension": {
+    "operation": "Explicit editorial tail extension, not an automatically detected model failure",
+    "original_ai": {
+      "path": "hero-ai.mp4",
+      "width": 1920,
+      "height": 1080,
+      "fps": "24/1",
+      "frames": 193,
+      "codec": "h264"
+    },
+    "requested_edit_frames": 216,
+    "requested_edit_seconds": 9,
+    "original_ai_frames_preserved": 193,
+    "ltx_generated_frames": [
+      193,
+      194,
+      195,
+      196,
+      197,
+      198,
+      199,
+      200,
+      201,
+      202,
+      203,
+      204,
+      205,
+      206,
+      207,
+      208,
+      209,
+      210,
+      211,
+      212,
+      213,
+      214,
+      215
+    ],
+    "context_source_frames": [
+      176,
+      192
+    ],
+    "ltx_window_frames": 41,
+    "model_resolution": [
+      1920,
+      1088
+    ],
+    "delivery_crop": "Remove 4px top and bottom spatial padding only",
+    "output": {
+      "path": "garage-extended-9s.mp4",
+      "width": 1920,
+      "height": 1080,
+      "fps": "24/1",
+      "frames": 216,
+      "codec": "h264"
+    },
+    "original_ai_file_sha256": "7aa92968b151e56b5a68f9916b6404143f432e388cf961af12a5056748cdc243",
+    "copied_frame_hash_before_encoding": "37cc9153027d849e43494ee111040f5a840cc7ee22634d7fa1ba77230dbc0d86",
+    "original_decoded_frame_hash": "37cc9153027d849e43494ee111040f5a840cc7ee22634d7fa1ba77230dbc0d86",
+    "copied_pixels_identical_before_encoding": true,
+    "method": "Native Windows ComfyUI LTX 2.5 continuation, followed by PlateLock genfill.save_patches context colour match and target-only merge. Existing AI frames copied in order; H.264 delivery re-encodes the complete clip.",
+    "limitation": "Plausible continuation; original plate trajectory and exact original pixels are not guaranteed. Separate advanced workflow, not Studio automatic missing-footage validation.",
+    "decoded_prefix_psnr_db_min": 42.759071350097656,
+    "decoded_prefix_psnr_db_median": 43.15089416503906,
+    "decoded_prefix_check": "All 193 decoded output frames compared to original at 640px width, same indices; H.264 changes pixels.",
+    "distinct_generated_frames": 23
+  },
+  "ltx_native_execution": {
+    "prompt_id": "79e13d8d-1605-4c54-af76-59005b15efb2",
+    "status": "success",
+    "model": "LTX 2.5 22B distilled int8 convrot",
+    "seed": 41,
+    "sampling_steps": 8,
+    "context_frames": 17,
+    "window_frames": 41,
+    "generated_frames_used": 23,
+    "resolution": [
+      1920,
+      1088
+    ],
+    "delivery_resolution": [
+      1920,
+      1080
+    ],
+    "workflow": "ltx-tail-workflow-api.json"
+  },
+  "rejected_candidate": {
+    "request_id": "01a188ba-6cf6-7250-acbf-35a7221fdc98",
+    "model": "Seedance 2.0",
+    "duration_seconds": 13,
+    "resolution": "1080p",
+    "reason": "Weak sequence confidence in the first two segments. Not used as a timing-repair proof or as the demo source."
+  }
+}

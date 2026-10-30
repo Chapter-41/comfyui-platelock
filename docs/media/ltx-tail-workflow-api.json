@@ -1,0 +1,277 @@
+{
+  "1": {
+    "class_type": "LoadVideo",
+    "inputs": {
+      "file": "platelock-real-ai-garage-tail-context.mp4"
+    }
+  },
+  "2": {
+    "class_type": "GetVideoComponents",
+    "inputs": {
+      "video": [
+        "1",
+        0
+      ]
+    }
+  },
+  "3": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "4": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "ltx-2.5-video-vae-bf16.safetensors"
+    }
+  },
+  "5": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "ltx-2.5-audio-vae-bf16.safetensors"
+    }
+  },
+  "6": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+      "type": "ltxv",
+      "device": "default"
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "6",
+        0
+      ],
+      "text": "A metallic cobalt-blue classic fastback coupe remains parked motionless inside a concrete parking garage. The camera continues the same slow smooth move as in the reference video, with consistent speed and direction. Concrete columns and the garage opening pass across the foreground. Stable vehicle shape, stationary wheels, continuous lighting and floor reflections. One continuous shot."
+    }
+  },
+  "8": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "6",
+        0
+      ],
+      "text": "cut, scene change, morphing, moving car, changing car shape, sudden camera movement"
+    }
+  },
+  "9": {
+    "class_type": "LTXVConditioning",
+    "inputs": {
+      "positive": [
+        "7",
+        0
+      ],
+      "negative": [
+        "8",
+        0
+      ],
+      "frame_rate": 24.0
+    }
+  },
+  "10": {
+    "class_type": "EmptyLTXVLatentVideo",
+    "inputs": {
+      "width": 1920,
+      "height": 1088,
+      "length": 41,
+      "batch_size": 1
+    }
+  },
+  "11": {
+    "class_type": "LTXVPreprocess",
+    "inputs": {
+      "image": [
+        "2",
+        0
+      ],
+      "img_compression": 18
+    }
+  },
+  "12": {
+    "class_type": "LTXVAddGuide",
+    "inputs": {
+      "positive": [
+        "9",
+        0
+      ],
+      "negative": [
+        "9",
+        1
+      ],
+      "vae": [
+        "4",
+        0
+      ],
+      "latent": [
+        "10",
+        0
+      ],
+      "image": [
+        "11",
+        0
+      ],
+      "frame_idx": 0,
+      "strength": 1.0
+    }
+  },
+  "13": {
+    "class_type": "LTXVEmptyLatentAudio",
+    "inputs": {
+      "audio_vae": [
+        "5",
+        0
+      ],
+      "frames_number": 41,
+      "frame_rate": 24.0,
+      "batch_size": 1
+    }
+  },
+  "14": {
+    "class_type": "LTXVConcatAVLatent",
+    "inputs": {
+      "video_latent": [
+        "12",
+        2
+      ],
+      "audio_latent": [
+        "13",
+        0
+      ]
+    }
+  },
+  "15": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "model": [
+        "3",
+        0
+      ],
+      "positive": [
+        "12",
+        0
+      ],
+      "negative": [
+        "12",
+        1
+      ],
+      "cfg": 1.0
+    }
+  },
+  "16": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler_ancestral"
+    }
+  },
+  "17": {
+    "class_type": "ManualSigmas",
+    "inputs": {
+      "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+    }
+  },
+  "18": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 41
+    }
+  },
+  "19": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "18",
+        0
+      ],
+      "guider": [
+        "15",
+        0
+      ],
+      "sampler": [
+        "16",
+        0
+      ],
+      "sigmas": [
+        "17",
+        0
+      ],
+      "latent_image": [
+        "14",
+        0
+      ]
+    }
+  },
+  "20": {
+    "class_type": "LTXVSeparateAVLatent",
+    "inputs": {
+      "av_latent": [
+        "19",
+        0
+      ]
+    }
+  },
+  "21": {
+    "class_type": "LTXVCropGuides",
+    "inputs": {
+      "positive": [
+        "12",
+        0
+      ],
+      "negative": [
+        "12",
+        1
+      ],
+      "latent": [
+        "20",
+        0
+      ]
+    }
+  },
+  "22": {
+    "class_type": "VAEDecodeTiled",
+    "inputs": {
+      "samples": [
+        "21",
+        2
+      ],
+      "vae": [
+        "4",
+        0
+      ],
+      "tile_size": 512,
+      "overlap": 64,
+      "temporal_size": 32,
+      "temporal_overlap": 8
+    }
+  },
+  "23": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "images": [
+        "22",
+        0
+      ],
+      "fps": 24.0
+    }
+  },
+  "24": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "video": [
+        "23",
+        0
+      ],
+      "filename_prefix": "platelock_real_ai/garage_tail_ltx",
+      "format": "mp4",
+      "codec": "h264",
+      "codec.encoding": "re-encode",
+      "codec.encoding.crf": 16.0
+    }
+  }
+}

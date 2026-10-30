@@ -1,0 +1,78 @@
+WEBVTT
+
+1
+00:00:01.220 --> 00:00:04.400
+Here's the original shot,
+and here's the AI edit.
+
+2
+00:00:05.820 --> 00:00:08.940
+The car looks good,
+but the framing has shifted a little.
+
+3
+00:00:10.120 --> 00:00:12.340
+PlateLock is there to line it back up.
+
+4
+00:00:13.420 --> 00:00:15.380
+You load both clips in ComfyUI,
+
+5
+00:00:15.780 --> 00:00:17.740
+check the match and run the repair.
+
+6
+00:00:19.820 --> 00:00:22.120
+Then, with an LTX AlphaGen mask,
+
+7
+00:00:22.420 --> 00:00:26.060
+you can keep the new car
+and bring back the original background.
+
+8
+00:00:32.020 --> 00:00:34.900
+This is the actual AI output.
+
+9
+00:00:35.980 --> 00:00:39.100
+Its timing slips midway through.
+
+10
+00:00:40.300 --> 00:00:42.020
+PlateLock realigns it,
+
+11
+00:00:42.020 --> 00:00:45.560
+and with RIFE, you can fill in the gaps.
+
+12
+00:00:46.420 --> 00:00:50.120
+The AI take in this example
+is eight seconds.
+
+13
+00:00:50.940 --> 00:00:51.980
+The edit needs nine.
+
+14
+00:00:52.740 --> 00:00:54.660
+LTX keeps the original frames
+
+15
+00:00:54.660 --> 00:00:56.600
+and generates the extra second.
+
+16
+00:00:58.440 --> 00:00:59.660
+That's PlateLock.
+
+17
+00:01:00.260 --> 00:01:03.100
+The AI edit,
+lined up with your original shot.
+
+18
+00:01:04.100 --> 00:01:04.520
+Thank you.

@@ -15,9 +15,13 @@ You load both clips in ComfyUI, check the match, and run the repair.
 Then, with an LTX mask, you can keep the new car and bring back the original background.
 
 5
-00:00:35,000 --> 00:00:42,760
-For timing, we made a test with nine missing frames and two repeats. PlateLock matches the sequence, and RIFE fills the gaps.
+00:00:33,000 --> 00:00:41,160
+This is the actual AI output. Its timing slips midway through. PlateLock realigns it, and RIFE fills the gap.
 
 6
-00:00:52,000 --> 00:00:56,160
+00:00:46,200 --> 00:00:53,720
+The edit needs another second. LTX continues the shot, keeping the original AI frames and generating only the extra tail.
+
+7
+00:00:59,300 --> 00:01:03,460
 That's PlateLock. The AI edit, lined up with your original shot.

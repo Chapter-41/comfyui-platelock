@@ -4,9 +4,9 @@
 
 Align AI video edits to their original plate. PlateLock repairs timing mismatches and fixed framing shifts, then lets you compare the result in ComfyUI.
 
-[![PlateLock — timing and framing repair for AI video edits](docs/media/platelock-poster-16x9.jpg)](docs/media/PlateLock-Demo-1080p.mp4)
+[![PlateLock — timing and framing repair for AI video edits](docs/media/platelock-poster-16x9.jpg)](https://chapter-41.github.io/comfyui-platelock/)
 
-[Watch the demo](docs/media/PlateLock-Demo-1080p.mp4) · [Download posters](docs/media/README.md) · [Usage guide](docs/usage.md)
+[Watch the demo](https://chapter-41.github.io/comfyui-platelock/) · [Download posters](docs/media/README.md) · [Usage guide](docs/usage.md)
 
 ## What it does
 
@@ -34,7 +34,7 @@ Start with the [example workflows](example_workflows). The [usage guide](docs/us
 
 ## Scope
 
-Framing repair corrects a fixed scale and translation; it does not remove arbitrary progressive drift or local deformation. Rendering uses 8-bit RGB and omits audio. LTX reconstruction is experimental. The demo's LTX mask/compositing step is a separate finishing workflow.
+Framing repair corrects a fixed scale and translation; it does not remove arbitrary progressive drift or local deformation. Rendering uses 8-bit RGB and omits audio. LTX reconstruction is experimental. The demo’s LTX masking/compositing and tail extension use separate advanced workflows.
 
 [Validation and limitations](docs/validation.md) · [Demo sources and credits](docs/media/README.md)
 
